@@ -5,10 +5,18 @@ TOL = 0.5
 norm = lambda s: " ".join(str(s).lower().split())
 
 def match(name, keys):
+    n_tokens = set(norm(name).split())
+    # 1. Token-containment: if all tokens of key are in item tokens (or vice-versa)
+    for k in keys:
+        k_tokens = set(norm(k).split())
+        if k_tokens and (k_tokens.issubset(n_tokens) or n_tokens.issubset(k_tokens)):
+            return k
+    # 2. Substring fallback
     n = norm(name)
     for k in keys:
         if k in n or n in k:
             return k
+    # 3. Fuzzy match
     m = difflib.get_close_matches(n, keys, n=1, cutoff=0.6)
     return m[0] if m else None
 

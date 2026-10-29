@@ -45,6 +45,13 @@ TEST_CASES = [
         "slip": None,
         "expected_error": None,
         "description": "Fully correct bill (zero errors expected)"
+    },
+    {
+        "bill": "test_bill4",
+        "slip": None,
+        "custom_rates": {"rice": 55.0},
+        "expected_error": "rate",
+        "description": "Token-containment test: Hinglish key 'rice' matches 'Sona Masoori Rice'"
     }
 ]
 
@@ -62,23 +69,24 @@ def run_audit_eval():
     agreed = json.loads(AGREED_RATES_FILE.read_text(encoding="utf-8")) if AGREED_RATES_FILE.exists() else None
 
     print(f"\n{'='*75}")
-    print(f"{'AUDIT ENGINE EVALUATION (6 TEST CASES)':^75}")
+    print(f"{'AUDIT ENGINE EVALUATION (7 TEST CASES)':^75}")
     print(f"{'='*75}\n")
 
-    planted_total = 5
+    planted_total = sum(1 for tc in TEST_CASES if tc["expected_error"] is not None)
     planted_caught = 0
     false_alarms = 0
 
     for idx, tc in enumerate(TEST_CASES, 1):
         bill_data = load_json(tc["bill"])
         slip_data = load_json(tc["slip"]) if tc["slip"] else None
+        case_rates = tc.get("custom_rates") or agreed
         
-        res = audit(bill_data, slip=slip_data, agreed=agreed)
+        res = audit(bill_data, slip=slip_data, agreed=case_rates)
         findings = res.get("findings", [])
         expected = tc["expected_error"]
 
         found_types = [f["type"] for f in findings]
-        print(f"[{idx}/6] Bill: {tc['bill']} ({tc['description']})")
+        print(f"[{idx}/{len(TEST_CASES)}] Bill: {tc['bill']} ({tc['description']})")
         if slip_data:
             print(f"      Matched Slip: {tc['slip']}")
         print(f"      Findings ({len(findings)}):")
