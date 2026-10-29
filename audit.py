@@ -5,7 +5,11 @@ TOL = 0.5
 norm = lambda s: " ".join(str(s).lower().split())
 
 def match(name, keys):
-    m = difflib.get_close_matches(norm(name), keys, n=1, cutoff=0.6)
+    n = norm(name)
+    for k in keys:
+        if k in n or n in k:
+            return k
+    m = difflib.get_close_matches(n, keys, n=1, cutoff=0.6)
     return m[0] if m else None
 
 def audit(bill, slip=None, agreed=None):
@@ -70,3 +74,4 @@ if __name__ == "__main__":
     slip = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")) if len(sys.argv) > 2 and sys.argv[2] != "-" else None
     agreed = json.loads(Path("samples/agreed_rates.json").read_text(encoding="utf-8")) if Path("samples/agreed_rates.json").exists() else None
     print(json.dumps(audit(bill, slip, agreed), indent=2, ensure_ascii=False))
+

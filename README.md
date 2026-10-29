@@ -52,7 +52,13 @@
    python audit.py outputs/test_bill3.json outputs/test_slip3.json
    ```
 
-6. **Run Full Test Suite & Evaluations**:
+6. **Run Autonomous Agent with Chat Agreements**:
+   ```bash
+   # Autonomous audit cross-referencing invoice with chat agreement screenshot:
+   python agent.py samples/test_bill4.jpg - samples/test_chat1.jpg
+   ```
+
+7. **Run Full Test Suite & Evaluations**:
    ```bash
    # Evaluate extraction accuracy across test suite:
    python eval.py
@@ -65,7 +71,7 @@
 
 ## Test Data & Benchmarks
 
-All test documents and ground truth files are located in `samples/` and `samples/truth/`.
+All test documents and ground truth files are located in `samples/` and `samples/truth/`. Note: All sample invoices (`test_bill1.jpg` to `test_bill6.jpg`), delivery slips (`test_slip*.jpg`), and chat agreement screenshots (`test_chat1.jpg` to `test_chat3.jpg`) are synthetic **test data** generated with deliberate discrepancies for benchmarking.
 
 - **Audit Discrepancy Evaluation (`eval_audit.py`)**:
   - Planted overcharge errors caught: **5 / 5 (100%)**
