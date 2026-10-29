@@ -1,0 +1,34 @@
+{
+  "vendor": "Kaveri Grain Stores",
+  "date": "2026-10-22",
+  "invoice_no": "CB-512",
+  "items": [
+    {
+      "name": "Sona Masoori Rice",
+      "qty": 50,
+      "unit": "kg",
+      "rate": 62.0,
+      "amount": 3100.0
+    },
+    {
+      "name": "Toor Dal",
+      "qty": 10,
+      "unit": "kg",
+      "rate": 140.0,
+      "amount": 1400.0
+    },
+    {
+      "name": "Wheat Flour",
+      "qty": 20,
+      "unit": "kg",
+      "rate": 42.0,
+      "amount": 840.0
+    }
+  ],
+  "subtotal": 5340.0,
+  "tax_total": 0.0,
+  "delivery_charge": 100.0,
+  "grand_total": 5440.0,
+  "confidence": 0.9,
+  "notes": "Error planted: Rice billed at 62.0/kg, higher than agreed rate of 55.0/kg"
+}
