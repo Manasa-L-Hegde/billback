@@ -1,0 +1,34 @@
+{
+  "vendor": "Sri Lakshmi Hardware",
+  "date": "2026-10-18",
+  "invoice_no": "SL-408",
+  "items": [
+    {
+      "name": "Cement Bag 50kg",
+      "qty": 10,
+      "unit": "bag",
+      "rate": 380.0,
+      "amount": 3800.0
+    },
+    {
+      "name": "Steel Wire Roll",
+      "qty": 2,
+      "unit": "roll",
+      "rate": 450.0,
+      "amount": 900.0
+    },
+    {
+      "name": "PVC Pipe 10ft",
+      "qty": 5,
+      "unit": "piece",
+      "rate": 220.0,
+      "amount": 1100.0
+    }
+  ],
+  "subtotal": 6200.0,
+  "tax_total": 0.0,
+  "delivery_charge": 200.0,
+  "grand_total": 6400.0,
+  "confidence": 0.9,
+  "notes": "Error planted: Line items sum to 5800.0, but subtotal billed is 6200.0"
+}

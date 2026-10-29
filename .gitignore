@@ -19,6 +19,9 @@ env/
 .env.*
 !.env.example
 
+# Outputs
+outputs/
+
 # IDE & Editor settings
 .vscode/
 .idea/

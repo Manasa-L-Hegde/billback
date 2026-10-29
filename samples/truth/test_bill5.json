@@ -1,0 +1,41 @@
+{
+  "vendor": "City Wholesale Mart",
+  "date": "2026-10-25",
+  "invoice_no": "CWM-9021",
+  "items": [
+    {
+      "name": "Cooking Oil 1L",
+      "qty": 6,
+      "unit": "bottle",
+      "rate": 130.0,
+      "amount": 780.0
+    },
+    {
+      "name": "Sugar 5kg",
+      "qty": 2,
+      "unit": "bag",
+      "rate": 210.0,
+      "amount": 420.0
+    },
+    {
+      "name": "Cooking Oil 1L",
+      "qty": 6,
+      "unit": "bottle",
+      "rate": 130.0,
+      "amount": 780.0
+    },
+    {
+      "name": "Tea Powder 500g",
+      "qty": 3,
+      "unit": "pack",
+      "rate": 160.0,
+      "amount": 480.0
+    }
+  ],
+  "subtotal": 2460.0,
+  "tax_total": 123.0,
+  "delivery_charge": 0.0,
+  "grand_total": 2583.0,
+  "confidence": 0.95,
+  "notes": "Error planted: Cooking Oil 1L is billed twice (duplicate item)"
+}
