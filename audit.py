@@ -75,6 +75,17 @@ def audit(bill, slip=None, agreed=None):
             if bq > dq:
                 add("not_delivered", k, (bq - dq) * rate_of[k], f"billed {bq}, slip shows {dq} delivered")
 
+    # 6. tax on overcharge (for item rate or delivery discrepancies)
+    sub = bill.get("subtotal")
+    tax_total = bill.get("tax_total")
+    if sub and tax_total and sub > 0 and tax_total > 0:
+        tax_rate = tax_total / sub
+        taxable_overcharge = sum(f["overcharge"] for f in out if f["type"] in ("not_delivered", "rate"))
+        if taxable_overcharge > 0 and tax_rate > 0.001:
+            tax_amt = round(taxable_overcharge * tax_rate, 2)
+            add("tax_on_overcharge", "tax on overcharge", tax_amt,
+                f"{tax_rate * 100:.1f}% tax on item overcharge of {taxable_overcharge:.2f}")
+
     return {"findings": out, "total_overcharge": round(sum(f["overcharge"] for f in out), 2)}
 
 if __name__ == "__main__":

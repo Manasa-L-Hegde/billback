@@ -19,9 +19,12 @@ env/
 .env.*
 !.env.example
 
-# Outputs
+# Outputs & Local Storage
 outputs/
 outbox/
+uploads/
+*.db
+*.sqlite3
 *.wav
 
 # IDE & Editor settings
