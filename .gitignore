@@ -21,6 +21,7 @@ env/
 
 # Outputs
 outputs/
+outbox/
 
 # IDE & Editor settings
 .vscode/
