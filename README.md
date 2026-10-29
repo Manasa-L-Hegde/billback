@@ -1,11 +1,16 @@
-# Billback
+# BillBack
 
-Billback is an AI-powered bill audit tool that extracts line items from receipts/bills, compares them against agreed prices or delivery notes, and detects overcharges.
+> Small shops and families pay bills where the real agreement lives in a voice note, the proof of delivery is a paper slip, and the bill is a photo. There's no ERP and no contract system. Overcharges slip through (wrong math, fees nobody agreed to, items billed twice or never delivered) because checking means cross-referencing three messy sources by hand, and disputing means writing and chasing emails. BillBack is an agent that reads all three, proves each overcharge with arithmetic, and carries the dispute through to recovery.
+
+---
 
 ## Features
-- Receipt & bill item extraction (name, quantity, rate, amount, total)
-- Delivery slip and verbal agreement cross-referencing
-- Overcharge and discrepancy detection
+- **Multimodal Bill & Slip Extraction**: Extracts line items (name, quantity, rate, amount, total) from printed and handwritten invoices and delivery challans.
+- **Arithmetic Verification**: Validates line-item math ($qty \times rate = amount$), subtotal consistency, and grand totals.
+- **Cross-Source Audit Engine**: Cross-references invoices with delivery slips and agreed rate cards to catch unauthorized delivery fees, duplicate items, delivered vs. billed quantity discrepancies, and unapproved rate hikes.
+- **Autonomous Dispute Generation**: Formulates clear dispute findings backed by exact mathematical proofs.
+
+---
 
 ## Project Setup
 
@@ -23,7 +28,7 @@ Billback is an AI-powered bill audit tool that extracts line items from receipts
    # On Linux/macOS:
    source .venv/bin/activate
 
-   pip install openai fastapi uvicorn python-dotenv python-multipart
+   pip install openai fastapi uvicorn python-dotenv python-multipart pillow
    ```
 
 3. **Configure Environment Variables**:
@@ -32,12 +37,39 @@ Billback is an AI-powered bill audit tool that extracts line items from receipts
    MODEL_API_KEY=your_key_here
    ```
 
-4. **Run API Test**:
+4. **Run Bill Extraction**:
    ```bash
-   python test_call.py
-   # Or with an image:
-   python test_call.py samples/bill1.jpg
+   python extract.py samples/test_bill1.jpg
+   python extract.py samples/test_slip3.jpg slip
    ```
 
-## Test Data
-Sample bills, slips, and audio notes for testing are located in `samples/`. Note: All sample documents containing test cases or simulated discrepancies are **test data**.
+5. **Run the Cross-Source Audit**:
+   ```bash
+   # Single bill math audit:
+   python audit.py outputs/test_bill1.json -
+
+   # Bill cross-referenced with delivery slip:
+   python audit.py outputs/test_bill3.json outputs/test_slip3.json
+   ```
+
+6. **Run Full Test Suite & Evaluations**:
+   ```bash
+   # Evaluate extraction accuracy across test suite:
+   python eval.py
+
+   # Evaluate audit engine against planted discrepancy cases:
+   python eval_audit.py
+   ```
+
+---
+
+## Test Data & Benchmarks
+
+All test documents and ground truth files are located in `samples/` and `samples/truth/`.
+
+- **Audit Discrepancy Evaluation (`eval_audit.py`)**:
+  - Planted overcharge errors caught: **5 / 5 (100%)**
+  - False alarms on clean bills: **0**
+- **Extraction Benchmark**:
+  - Clean synthetic baseline accuracy: tracked in `samples/accuracy.md`.
+  - Real-photo accuracy: tracked separately under real-world lighting and camera conditions.
