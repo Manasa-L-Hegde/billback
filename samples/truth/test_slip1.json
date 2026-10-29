@@ -18,6 +18,7 @@
       "unit": "kg"
     }
   ],
+  "delivery_charge": 0.0,
   "confidence": 0.95,
   "notes": "Delivery Slip #DS-8832. Free Delivery agreed."
 }

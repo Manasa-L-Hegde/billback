@@ -19,6 +19,7 @@ cannot read. NEVER guess a number. confidence = how legible the photo is.""",
     "slip": """You are reading a photo of a delivery slip / challan. Return ONLY valid JSON:
 {"vendor": str|null, "date": str|null,
  "items": [{"name": str, "qty": number|null, "unit": str|null}],
+ "delivery_charge": number|null,
  "confidence": number between 0 and 1, "notes": str}
 Use null if unreadable. NEVER guess.""",
 }
