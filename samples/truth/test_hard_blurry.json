@@ -1,0 +1,41 @@
+{
+  "vendor": "National Stationery Mart",
+  "date": "2026-10-28",
+  "invoice_no": "NSM-4412",
+  "items": [
+    {
+      "name": "Whiteboard Markers (Set of 4)",
+      "qty": 5,
+      "unit": null,
+      "rate": 180.0,
+      "amount": 900.0
+    },
+    {
+      "name": "Correction Tape",
+      "qty": 10,
+      "unit": null,
+      "rate": 45.0,
+      "amount": 450.0
+    },
+    {
+      "name": "Heavy Duty Stapler",
+      "qty": 2,
+      "unit": null,
+      "rate": 350.0,
+      "amount": 700.0
+    },
+    {
+      "name": "Staple Pins 24/6",
+      "qty": 8,
+      "unit": null,
+      "rate": 25.0,
+      "amount": 200.0
+    }
+  ],
+  "subtotal": 2250.0,
+  "tax_total": 270.0,
+  "delivery_charge": 0.0,
+  "grand_total": 2520.0,
+  "confidence": 0.85,
+  "notes": "Rotated (-4.5 deg) with slight camera blur test"
+}

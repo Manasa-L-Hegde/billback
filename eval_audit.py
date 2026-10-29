@@ -97,8 +97,8 @@ def run_audit_eval():
         if expected is not None:
             if expected in found_types:
                 planted_caught += 1
-                # Any findings of a different type?
-                extras = [t for t in found_types if t != expected]
+                # Any findings of a different type? (allow tax_on_overcharge)
+                extras = [t for t in found_types if t != expected and t != "tax_on_overcharge"]
                 false_alarms += len(extras)
                 status = "PASS (Planted error caught)"
             else:

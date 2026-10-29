@@ -1,0 +1,34 @@
+{
+  "vendor": "Global Logistics & Hardware",
+  "date": "2026-10-29",
+  "invoice_no": "GLH-709",
+  "items": [
+    {
+      "name": "Industrial Safety Helmets",
+      "qty": 15,
+      "unit": "pcs",
+      "rate": 320.0,
+      "amount": 4800.0
+    },
+    {
+      "name": "Safety Goggles Anti-Fog",
+      "qty": 20,
+      "unit": "pcs",
+      "rate": 85.0,
+      "amount": 1700.0
+    },
+    {
+      "name": "Leather Work Gloves",
+      "qty": 25,
+      "unit": "pair",
+      "rate": 110.0,
+      "amount": 2750.0
+    }
+  ],
+  "subtotal": 9250.0,
+  "tax_total": 1665.0,
+  "delivery_charge": 0.0,
+  "grand_total": 10915.0,
+  "confidence": 0.95,
+  "notes": "Different layout test: Rate before Qty column, modern 2-col header"
+}
