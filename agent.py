@@ -12,12 +12,11 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 load_dotenv()
-client = OpenAI(base_url="https://api.meta.ai/v1", api_key=os.environ["MODEL_API_KEY"])
+client = OpenAI(base_url="https://api.meta.ai/v1", api_key=os.environ.get("MODEL_API_KEY", ""), timeout=60.0, max_retries=2)
 MODEL, MAX_STEPS = "muse-spark-1.3", 10
-MIN_ACCEPT_PERCENT = float(os.environ.get("MIN_ACCEPT_PERCENT", 80.0))
+MIN_ACCEPT_PERCENT_DEFAULT = float(os.environ.get("MIN_ACCEPT_PERCENT", 80.0))
 rates_file = Path("samples/agreed_rates.json")
 AGREED = json.loads(rates_file.read_text(encoding="utf-8")) if rates_file.exists() else {}
-STATE = {}
 
 SYSTEM = """You are BillBack, an agent that audits a small shop's bill and recovers overcharges.
 Work in this order:
@@ -30,123 +29,8 @@ Work in this order:
 4. If there are no findings, do NOT send an email. Say the bill is correct.
 Rules:
 - Only claim what run_audit reported. Never invent amounts or errors.
-- Never settle below MIN_ACCEPT_PERCENT (default 80%) of the claim without escalating.
+- Never settle below the minimum acceptance floor of the claim without escalating.
 - End with a clear summary and the final settlement outcome."""
-
-def t_extract(path, doc_type):
-    data = extract(path, doc_type)
-    STATE[doc_type] = data
-    return data
-
-def t_read_agreement(path):
-    data = extract_agreement(path)
-    if not data or not data.get("agreed_rates"):
-        return {"error": "Agreement extraction returned empty. Cannot verify terms without valid rates."}
-    STATE["agreement"] = data
-    return data
-
-def t_audit():
-    if "invoice" not in STATE:
-        return {"error": "extract the invoice first"}
-    agreed_rates = None
-    if "agreement" in STATE and STATE["agreement"].get("agreed_rates"):
-        agreed_rates = STATE["agreement"]["agreed_rates"]
-    else:
-        agreed_rates = AGREED
-    audit_res = audit(STATE["invoice"], STATE.get("slip"), agreed_rates)
-    STATE["audit"] = audit_res
-    return audit_res
-
-def t_send(to, subject, body):
-    res = send_email(to, subject, body)
-    STATE["dispute_email"] = {"to": to, "subject": subject, "body": body}
-    return res
-
-def t_negotiate(vendor_strategy=None):
-    if "audit" not in STATE:
-        return {"error": "run_audit first"}
-    
-    total_claimed = STATE["audit"].get("total_overcharge", 0.0)
-    if total_claimed <= 0:
-        return {"status": "no overcharge to negotiate"}
-
-    strategy = vendor_strategy or STATE.get("vendor_strategy", "realistic")
-    transcript = []
-    current_body = STATE.get("dispute_email", {}).get("body", "Dispute claim of Rs. " + str(total_claimed))
-    
-    recovered = 0.0
-    status = "pending"
-    floor_amount = round(total_claimed * (MIN_ACCEPT_PERCENT / 100.0), 2)
-
-    for round_num in range(1, 4):
-        # 1. Vendor simulates reply
-        v_reply = simulate_vendor_reply(current_body, total_claimed, round_num=round_num, strategy=strategy)
-        offer = float(v_reply.get("offer_amount", 0.0))
-        
-        transcript.append({
-            "round": round_num,
-            "sender": "Simulated vendor",
-            "reply": v_reply["reply_text"],
-            "offer": offer
-        })
-        
-        # 2. Agent assesses offer against floor
-        if offer >= floor_amount:
-            recovered = offer
-            status = f"Settled in round {round_num}: Vendor granted Rs. {offer} (>= {MIN_ACCEPT_PERCENT}% floor)"
-            transcript.append({
-                "round": round_num,
-                "sender": "BillBack Agent",
-                "action": "ACCEPT",
-                "message": f"Settlement accepted: Rs. {offer} meets/exceeds acceptable recovery threshold ({MIN_ACCEPT_PERCENT}% = Rs. {floor_amount}). Case closed."
-            })
-            break
-        else:
-            # Below acceptable threshold
-            if round_num < 3:
-                counter_text = (
-                    f"Dear Vendor,\n\nWe cannot accept Rs. {offer}. As documented in our verified delivery and arithmetic audit, "
-                    f"the exact unjustified overcharge is Rs. {total_claimed}. "
-                    f"Please credit the full amount of Rs. {total_claimed} to resolve this dispute.\n\nRegards,\nBillBack Audit"
-                )
-                transcript.append({
-                    "round": round_num,
-                    "sender": "BillBack Agent",
-                    "action": "COUNTER",
-                    "counter_offer": total_claimed,
-                    "message": counter_text
-                })
-                current_body = counter_text
-                # In next round, vendor may reconsider
-                strategy = "accept" if strategy == "partial_50" and round_num == 2 else strategy
-            else:
-                status = f"Escalated to human: Vendor offered only Rs. {offer} after 3 rounds (below Rs. {floor_amount} floor)"
-                transcript.append({
-                    "round": round_num,
-                    "sender": "BillBack Agent",
-                    "action": "ESCALATE",
-                    "message": f"Final vendor offer Rs. {offer} rejected. Escalated to human owner for formal debt recovery."
-                })
-                recovered = offer
-
-    outcome = {
-        "claimed": total_claimed,
-        "recovered": recovered,
-        "floor": floor_amount,
-        "rounds": len([t for t in transcript if "action" in t]),
-        "status": status,
-        "transcript": transcript
-    }
-    STATE["outcome"] = outcome
-    return outcome
-
-FUNCS = {
-    "extract_document": t_extract,
-    "read_agreement": t_read_agreement,
-    "run_audit": t_audit,
-    "send_dispute_email": t_send,
-    "negotiate_settlement": t_negotiate,
-}
 
 TOOLS = [
     {"type": "function", "function": {
@@ -173,42 +57,166 @@ TOOLS = [
             "vendor_strategy": {"type": "string", "enum": ["realistic", "partial_50", "deny", "accept"]}}}}},
 ]
 
-def run(invoice, slip=None, agreement=None, vendor_email="vendor@example.com", vendor_strategy=None):
-    STATE.clear()
-    if vendor_strategy:
-        STATE["vendor_strategy"] = vendor_strategy
+class CaseSession:
+    """Thread-safe, isolated per-case agent session."""
+    def __init__(self, invoice, slip=None, agreement=None, vendor_email="vendor@example.com", vendor_strategy=None, min_accept_pct=None):
+        self.invoice = invoice
+        self.slip = slip
+        self.agreement = agreement
+        self.vendor_email = vendor_email
+        self.vendor_strategy = vendor_strategy or "realistic"
+        self.min_accept_pct = min_accept_pct if min_accept_pct is not None else MIN_ACCEPT_PERCENT_DEFAULT
+        self.state = {}
 
-    task = (
-        f"Invoice photo: {invoice}\n"
-        f"Delivery slip photo: {slip or 'none'}\n"
-        f"Agreement photo/transcript: {agreement or 'none'}\n"
-        f"Vendor email: {vendor_email}"
-    )
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task}]
-    
-    for step in range(1, MAX_STEPS + 1):
-        r = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS, temperature=0)
-        msg = r.choices[0].message
-        messages.append(msg.model_dump(exclude_none=True))
-        if not msg.tool_calls:
-            final_summary = msg.content
-            if "outcome" in STATE:
-                out = STATE["outcome"]
-                final_summary += f"\n\n--- Final Negotiation Outcome ---\nClaimed: Rs. {out['claimed']} | Recovered: Rs. {out['recovered']} | Rounds: {out['rounds']} | Status: {out['status']}"
-            return final_summary
+    def t_extract(self, path, doc_type):
+        data = extract(path, doc_type)
+        self.state[doc_type] = data
+        return data
+
+    def t_read_agreement(self, path):
+        data = extract_agreement(path)
+        if not data or not data.get("agreed_rates"):
+            return {"error": "Agreement extraction returned empty. Cannot verify terms without valid rates."}
+        self.state["agreement"] = data
+        return data
+
+    def t_audit(self):
+        if "invoice" not in self.state:
+            return {"error": "extract the invoice first"}
+        agreed_rates = None
+        if "agreement" in self.state and self.state["agreement"].get("agreed_rates"):
+            agreed_rates = self.state["agreement"]["agreed_rates"]
+        else:
+            agreed_rates = AGREED
+        audit_res = audit(self.state["invoice"], self.state.get("slip"), agreed_rates)
+        self.state["audit"] = audit_res
+        return audit_res
+
+    def t_send(self, to, subject, body):
+        res = send_email(to, subject, body)
+        self.state["dispute_email"] = {"to": to, "subject": subject, "body": body}
+        return res
+
+    def t_negotiate(self, vendor_strategy=None):
+        if "audit" not in self.state:
+            return {"error": "run_audit first"}
         
-        for call in msg.tool_calls:
-            args = json.loads(call.function.arguments or "{}")
-            call_repr = "..." if call.function.name in ["send_dispute_email", "negotiate_settlement"] else args
-            print(f"[step {step}] {call.function.name}({call_repr})", flush=True)
-            try:
-                result = FUNCS[call.function.name](**args)
-            except Exception as e:
-                result = {"error": str(e)}
-            messages.append({"role": "tool", "tool_call_id": call.id,
-                             "content": json.dumps(result, ensure_ascii=False)})
+        total_claimed = self.state["audit"].get("total_overcharge", 0.0)
+        if total_claimed <= 0:
+            return {"status": "no overcharge to negotiate"}
+
+        strategy = vendor_strategy or self.vendor_strategy
+        transcript = []
+        current_body = self.state.get("dispute_email", {}).get("body", f"Dispute claim of Rs. {total_claimed}")
+        
+        recovered = 0.0
+        status = "pending"
+        floor_amount = round(total_claimed * (self.min_accept_pct / 100.0), 2)
+
+        for round_num in range(1, 4):
+            v_reply = simulate_vendor_reply(current_body, total_claimed, round_num=round_num, strategy=strategy)
+            offer = float(v_reply.get("offer_amount", 0.0))
             
-    return "Stopped: step limit reached."
+            transcript.append({
+                "round": round_num,
+                "sender": "Simulated vendor",
+                "reply": v_reply["reply_text"],
+                "offer": offer
+            })
+            
+            if offer >= floor_amount:
+                recovered = offer
+                status = f"Settled in round {round_num}: Vendor granted Rs. {offer} (>= {self.min_accept_pct}% floor)"
+                transcript.append({
+                    "round": round_num,
+                    "sender": "BillBack Agent",
+                    "action": "ACCEPT",
+                    "message": f"Settlement accepted: Rs. {offer} meets/exceeds acceptable recovery threshold ({self.min_accept_pct}% = Rs. {floor_amount}). Case closed."
+                })
+                break
+            else:
+                if round_num < 3 and strategy != "deny":
+                    counter_text = (
+                        f"Dear Vendor,\n\nWe cannot accept Rs. {offer}. As documented in our verified delivery and arithmetic audit, "
+                        f"the exact unjustified overcharge is Rs. {total_claimed}. "
+                        f"Please credit the full amount of Rs. {total_claimed} to resolve this dispute.\n\nRegards,\nBillBack Audit"
+                    )
+                    transcript.append({
+                        "round": round_num,
+                        "sender": "BillBack Agent",
+                        "action": "COUNTER",
+                        "counter_offer": total_claimed,
+                        "message": counter_text
+                    })
+                    current_body = counter_text
+                    if strategy == "partial_50" and round_num == 2:
+                        strategy = "accept"
+                else:
+                    status = f"Escalated to human: Vendor offered Rs. {offer} after round {round_num} (below Rs. {floor_amount} floor)"
+                    transcript.append({
+                        "round": round_num,
+                        "sender": "BillBack Agent",
+                        "action": "ESCALATE",
+                        "message": f"Final vendor offer Rs. {offer} rejected. Escalated to human owner for formal debt recovery."
+                    })
+                    recovered = offer
+                    break
+
+        outcome = {
+            "claimed": total_claimed,
+            "recovered": recovered,
+            "floor": floor_amount,
+            "rounds": len([t for t in transcript if "action" in t]),
+            "status": status,
+            "transcript": transcript
+        }
+        self.state["outcome"] = outcome
+        return outcome
+
+    def run(self):
+        funcs = {
+            "extract_document": self.t_extract,
+            "read_agreement": self.t_read_agreement,
+            "run_audit": self.t_audit,
+            "send_dispute_email": self.t_send,
+            "negotiate_settlement": self.t_negotiate,
+        }
+
+        task = (
+            f"Invoice photo: {self.invoice}\n"
+            f"Delivery slip photo: {self.slip or 'none'}\n"
+            f"Agreement photo/transcript: {self.agreement or 'none'}\n"
+            f"Vendor email: {self.vendor_email}"
+        )
+        messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task}]
+        
+        for step in range(1, MAX_STEPS + 1):
+            r = client.chat.completions.create(model=MODEL, messages=messages, tools=TOOLS, temperature=0)
+            msg = r.choices[0].message
+            messages.append(msg.model_dump(exclude_none=True))
+            if not msg.tool_calls:
+                final_summary = msg.content
+                if "outcome" in self.state:
+                    out = self.state["outcome"]
+                    final_summary += f"\n\n--- Final Negotiation Outcome ---\nClaimed: Rs. {out['claimed']} | Recovered: Rs. {out['recovered']} | Rounds: {out['rounds']} | Status: {out['status']}"
+                return final_summary
+            
+            for call in msg.tool_calls:
+                args = json.loads(call.function.arguments or "{}")
+                call_repr = "..." if call.function.name in ["send_dispute_email", "negotiate_settlement"] else args
+                print(f"[step {step}] {call.function.name}({call_repr})", flush=True)
+                try:
+                    result = funcs[call.function.name](**args)
+                except Exception as e:
+                    result = {"error": str(e)}
+                messages.append({"role": "tool", "tool_call_id": call.id,
+                                 "content": json.dumps(result, ensure_ascii=False)})
+                
+        return "Stopped: step limit reached."
+
+def run(invoice, slip=None, agreement=None, vendor_email="vendor@example.com", vendor_strategy=None, min_accept_pct=None):
+    session = CaseSession(invoice, slip, agreement, vendor_email, vendor_strategy, min_accept_pct)
+    return session.run()
 
 if __name__ == "__main__":
     invoice_arg = sys.argv[1]
