@@ -1,18 +1,60 @@
 # BillBack
 
-> Small shops and families pay bills where the real agreement lives in a voice note, the proof of delivery is a paper slip, and the bill is a photo. There's no ERP and no contract system. Overcharges slip through (wrong math, fees nobody agreed to, items billed twice or never delivered) because checking means cross-referencing three messy sources by hand, and disputing means writing and chasing emails. BillBack is an agent that reads all three, proves each overcharge with arithmetic, and carries the dispute through to recovery.
+> Small shops and families pay bills where the real agreement lives in a voice note or chat, the proof of delivery is a paper slip, and the bill is a photo. There's no ERP and no contract system. Overcharges slip through (wrong math, fees nobody agreed to, items billed twice or never delivered) because checking means cross-referencing three messy sources by hand, and disputing means writing and chasing emails. BillBack is an agent that reads all three, proves each overcharge with arithmetic, and carries the dispute through to recovery.
 
 ---
 
-## Features
-- **Multimodal Bill & Slip Extraction**: Extracts line items (name, quantity, rate, amount, total) from printed and handwritten invoices and delivery challans.
-- **Arithmetic Verification**: Validates line-item math ($qty \times rate = amount$), subtotal consistency, and grand totals.
-- **Cross-Source Audit Engine**: Cross-references invoices with delivery slips and agreed rate cards to catch unauthorized delivery fees, duplicate items, delivered vs. billed quantity discrepancies, and unapproved rate hikes.
-- **Autonomous Dispute Generation**: Formulates clear dispute findings backed by exact mathematical proofs.
+## 30-Second Architecture: How It Works
+
+```mermaid
+flowchart TD
+    subgraph Inputs ["1. Multimodal Inputs"]
+        A1[Invoice / Bill Photo]
+        A2[Delivery Slip / Challan Photo]
+        A3[Agreement: Chat Screenshot / Voice Transcript]
+    end
+
+    subgraph Extraction ["2. Multimodal Extraction (Meta muse-spark-1.3)"]
+        B1["extract_document(invoice)"]
+        B2["extract_document(slip)"]
+        B3["read_agreement(image/text)"]
+    end
+
+    subgraph Audit ["3. Zero-Hallucination Audit Engine"]
+        C1["Line Math ($qty \times rate = amount$)"]
+        C2["Subtotal & Tax Reconciliation ($5\%$ tax calculation)"]
+        C3["Delivered vs Billed Quantity Cross-Check"]
+        C4["Contract Rate Token-Containment Match"]
+        C5["Delivery Charge Waiver Check"]
+    end
+
+    subgraph Resolution ["4. Dispute & Negotiation Loop"]
+        D1["Draft Itemized Dispute Email"]
+        D2{"Autonomous or Human Approval?"}
+        D3["Gmail SMTP Dispatch"]
+        D4["Simulated Vendor 3-Round Negotiation"]
+        D5["Recovery Floor Enforcement (80%) or Escalate"]
+    end
+
+    A1 --> B1
+    A2 --> B2
+    A3 --> B3
+
+    B1 --> Audit
+    B2 --> Audit
+    B3 --> Audit
+
+    Audit --> D1
+    D1 --> D2
+    D2 -- "Approve Click" --> D3
+    D2 -- "Autonomous: True" --> D3
+    D3 --> D4
+    D4 --> D5
+```
 
 ---
 
-## Project Setup
+## Quickstart (Fresh Clone Setup)
 
 1. **Clone the repository**:
    ```bash
@@ -20,62 +62,63 @@
    cd billback
    ```
 
-2. **Set up virtual environment & install dependencies**:
+2. **Create virtual environment & install dependencies**:
    ```bash
    python -m venv .venv
-   # On Windows:
+   # Windows:
    .venv\Scripts\activate
-   # On Linux/macOS:
+   # macOS/Linux:
    source .venv/bin/activate
 
-   pip install openai fastapi uvicorn python-dotenv python-multipart pillow
+   pip install -r requirements.txt
    ```
 
-3. **Configure Environment Variables**:
-   Create a `.env` file in the root directory:
+3. **Configure environment variables**:
+   Create a `.env` file from `.env.example`:
    ```env
-   MODEL_API_KEY=your_key_here
+   MODEL_API_KEY=your_meta_model_api_key_here
+   # Optional: Real Gmail sending (defaults to DRY_RUN=1 audit outbox logging)
+   DRY_RUN=1
+   GMAIL_USER=your_email@gmail.com
+   GMAIL_APP_PASSWORD=your_16_char_app_password
+   DEMO_VENDOR_EMAIL=vendor_inbox@example.com
    ```
 
-4. **Run Bill Extraction**:
+4. **Launch the Web Application**:
    ```bash
-   python extract.py samples/test_bill1.jpg
-   python extract.py samples/test_slip3.jpg slip
+   uvicorn server:app --reload
    ```
-
-5. **Run the Cross-Source Audit**:
-   ```bash
-   # Single bill math audit:
-   python audit.py outputs/test_bill1.json -
-
-   # Bill cross-referenced with delivery slip:
-   python audit.py outputs/test_bill3.json outputs/test_slip3.json
-   ```
-
-6. **Run Autonomous Agent with Chat Agreements**:
-   ```bash
-   # Autonomous audit cross-referencing invoice with chat agreement screenshot:
-   python agent.py samples/test_bill4.jpg - samples/test_chat1.jpg
-   ```
-
-7. **Run Full Test Suite & Evaluations**:
-   ```bash
-   # Evaluate extraction accuracy across test suite:
-   python eval.py
-
-   # Evaluate audit engine against planted discrepancy cases:
-   python eval_audit.py
-   ```
+   Open `http://127.0.0.1:8000` in your browser.
 
 ---
 
-## Test Data & Benchmarks
+## How to Try the Demo Case (One-Click)
 
-All test documents and ground truth files are located in `samples/` and `samples/truth/`. Note: All sample invoices (`test_bill1.jpg` to `test_bill6.jpg`), delivery slips (`test_slip*.jpg`), and chat agreement screenshots (`test_chat1.jpg` to `test_chat3.jpg`) are synthetic **test data** generated with deliberate discrepancies for benchmarking.
+1. Open `http://127.0.0.1:8000`.
+2. Click the **"Try Demo Case"** button on the top right of the inputs card.
+   - Automatically loads `test_bill5.jpg` and `test_slip5.jpg` (duplicate billing case).
+   - Audits the bill live via Server-Sent Events (SSE).
+   - Flags ₹780 duplicate Cooking Oil + ₹39 tax on overcharge = **₹819.00 total claim**.
+   - Initiates negotiation with the simulated vendor, counters an interim 50% offer, and settles at 100% recovery.
 
-- **Audit Discrepancy Evaluation (`eval_audit.py`)**:
-  - Planted overcharge errors caught: **5 / 5 (100%)**
-  - False alarms on clean bills: **0**
-- **Extraction Benchmark**:
-  - Clean synthetic baseline accuracy: tracked in `samples/accuracy.md`.
-  - Real-photo accuracy: tracked separately under real-world lighting and camera conditions.
+---
+
+## Honesty and Limitations
+
+- **Synthetically Generated Test Data**:
+  - Sample invoices (`test_bill1.jpg` to `test_bill6.jpg`), delivery slips (`test_slip*.jpg`), and chat screenshots (`test_chat1.jpg` to `test_chat3.jpg`) are synthetic test data generated with deliberate arithmetic errors and discrepancies for testing.
+  - The 4 historical invoices for *City Wholesale Mart* in the sidebar are seeded test data to demonstrate the price-drift detection algorithm.
+- **Simulated Vendor**:
+  - In-app vendor responses are generated by a second model persona labeled `"Simulated vendor"` for predictable demonstration of counter-offers and escalations.
+- **Voice Agreement Input**:
+  - Voice agreements use the browser's native Web Speech API (supporting Indian English, Hindi, and Kannada) to produce a local transcript, which is then parsed by `muse-spark-1.3`. Meta's `input_audio` multimodal format was tested and found to be currently unsupported on the standard chat completions endpoint.
+- **Real-Photo Accuracy**:
+  - Evaluated separately on real camera photos of retail and stationery receipts under natural lighting. Synthetic test scores (100%) reflect baseline model capabilities on clean digital renders; real-world photos are subject to perspective distortion, creases, and thermal fade.
+- **What BillBack Cannot Do**:
+  - It does not initiate legal court filings or debt collection lawsuits.
+  - It does not connect directly to banking APIs for automated fund wire transfers; settlements are issued as credit notes or corrected invoices.
+
+---
+
+## Meta Model Products Used
+- **`muse-spark-1.3`**: Powers all document vision understanding (printed invoices, handwritten chits, delivery challans, chat screenshots), extraction, audit structuring, and vendor negotiation simulation via `https://api.meta.ai/v1`.

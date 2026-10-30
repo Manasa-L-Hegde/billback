@@ -2,7 +2,8 @@ import os, sys, json, time, uuid, asyncio, sqlite3
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -29,20 +30,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Active running cases queue for SSE
-CASE_QUEUES = {}
+# Active running cases state & pub-sub queues for SSE
+CASE_EVENT_HISTORY = {} # case_id -> list of {"event": ..., "data": ...}
+CASE_SUBSCRIBERS = {}    # case_id -> list of asyncio.Queue
+CASE_RUNNING_TASKS = {}
 CASE_APPROVAL_EVENTS = {}
+CASE_EDITED_EMAILS = {}
+
+async def _publish_event(case_id: str, event_type: str, data: dict):
+    msg = {"event": event_type, "data": data}
+    CASE_EVENT_HISTORY.setdefault(case_id, []).append(msg)
+    subs = CASE_SUBSCRIBERS.get(case_id, [])
+    for q in list(subs):
+        await q.put(msg)
 
 class ApprovalPayload(BaseModel):
     edited_subject: Optional[str] = None
     edited_body: Optional[str] = None
 
+class DemoCasePayload(BaseModel):
+    vendor_mode: Optional[str] = "partial_50"
+    min_accept_percent: Optional[float] = 80.0
+    autonomous: Optional[bool] = False
+
 @app.get("/")
 def root():
-    return {"message": "BillBack Agentic Audit API", "version": "1.0.0", "status": "running"}
+    return FileResponse("static/index.html")
+
+@app.post("/api/cases/demo")
+def create_demo_case(payload: DemoCasePayload):
+    case_id = f"demo_case_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    case_dir = UPLOAD_DIR / case_id
+    case_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy bill5 and slip5 sample images
+    inv_src = Path("samples/test_bill5.jpg")
+    slip_src = Path("samples/test_slip5.jpg")
+    
+    inv_dst = case_dir / "test_bill5.jpg"
+    slip_dst = case_dir / "test_slip5.jpg"
+    
+    inv_dst.write_bytes(inv_src.read_bytes())
+    slip_dst.write_bytes(slip_src.read_bytes())
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+    INSERT INTO cases (
+        id, invoice_file, slip_file, agreement_file, vendor_email, 
+        vendor_mode, min_accept_percent, autonomous, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        case_id, str(inv_dst), str(slip_dst), 
+        None, "vendor@example.com",
+        payload.vendor_mode or "partial_50", 
+        payload.min_accept_percent or 80.0, 
+        1 if payload.autonomous else 0, "created"
+    ))
+    conn.commit()
+    conn.close()
+
+    return {"case_id": case_id, "status": "created"}
 
 @app.get("/api/cases")
 def list_cases():
@@ -113,7 +166,7 @@ async def create_case(
 
     return {"case_id": case_id, "status": "created"}
 
-async def execute_case_workflow(case_id: str, queue: asyncio.Queue):
+async def execute_case_workflow(case_id: str):
     """Orchestrates agent execution and yields SSE event payloads."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -133,7 +186,7 @@ async def execute_case_workflow(case_id: str, queue: asyncio.Queue):
     state = {}
 
     async def emit(event_type: str, data: dict):
-        await queue.put({"event": event_type, "data": data})
+        await _publish_event(case_id, event_type, data)
 
     try:
         # Step 1: Extract Invoice
@@ -213,6 +266,13 @@ async def execute_case_workflow(case_id: str, queue: asyncio.Queue):
             CASE_APPROVAL_EVENTS[case_id] = approval_event
             await approval_event.wait()
             del CASE_APPROVAL_EVENTS[case_id]
+
+            if case_id in CASE_EDITED_EMAILS:
+                ed = CASE_EDITED_EMAILS.pop(case_id)
+                if ed.edited_subject:
+                    email_subj = ed.edited_subject
+                if ed.edited_body:
+                    email_body = ed.edited_body
 
         # Step 6: Send Email
         send_res = send_email(vendor_email, email_subj, email_body)
@@ -296,7 +356,8 @@ async def execute_case_workflow(case_id: str, queue: asyncio.Queue):
         await emit("error", {"message": err_msg})
         _update_db_case(case_id, "Unknown", "ERR", "error", 0.0, 0.0, None, {"error": err_msg}, "")
     finally:
-        await queue.put(None)
+        for q in list(CASE_SUBSCRIBERS.get(case_id, [])):
+            await q.put(None)
 
 def _update_db_case(case_id, vendor, inv_no, status, claimed, recovered, audit_res, outcome, email_draft):
     conn = sqlite3.connect(DB_PATH)
@@ -318,19 +379,35 @@ def _update_db_case(case_id, vendor, inv_no, status, claimed, recovered, audit_r
 
 @app.get("/api/cases/{case_id}/stream")
 async def stream_case(case_id: str):
-    queue = asyncio.Queue()
-    CASE_QUEUES[case_id] = queue
+    if case_id not in CASE_RUNNING_TASKS:
+        CASE_RUNNING_TASKS[case_id] = asyncio.create_task(execute_case_workflow(case_id))
 
-    # Run execution in background task
-    asyncio.create_task(execute_case_workflow(case_id, queue))
+    sub_q = asyncio.Queue()
+    CASE_SUBSCRIBERS.setdefault(case_id, []).append(sub_q)
+
+    # Replay historical events for this case
+    past_events = list(CASE_EVENT_HISTORY.get(case_id, []))
 
     async def event_generator():
-        while True:
-            msg = await queue.get()
-            if msg is None:
-                yield "event: end\ndata: {}\n\n"
-                break
-            yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'], ensure_ascii=False)}\n\n"
+        try:
+            for ev in past_events:
+                yield f"event: {ev['event']}\ndata: {json.dumps(ev['data'], ensure_ascii=False)}\n\n"
+                if ev['event'] in ("outcome", "error"):
+                    yield "event: end\ndata: {}\n\n"
+                    return
+
+            while True:
+                msg = await sub_q.get()
+                if msg is None:
+                    yield "event: end\ndata: {}\n\n"
+                    break
+                yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'], ensure_ascii=False)}\n\n"
+                if msg['event'] in ("outcome", "error"):
+                    yield "event: end\ndata: {}\n\n"
+                    break
+        finally:
+            if case_id in CASE_SUBSCRIBERS and sub_q in CASE_SUBSCRIBERS[case_id]:
+                CASE_SUBSCRIBERS[case_id].remove(sub_q)
 
     return StreamingResponse(
         event_generator(),
@@ -344,6 +421,8 @@ async def stream_case(case_id: str):
 
 @app.post("/api/cases/{case_id}/approve")
 def approve_case(case_id: str, payload: Optional[ApprovalPayload] = None):
+    if payload:
+        CASE_EDITED_EMAILS[case_id] = payload
     if case_id in CASE_APPROVAL_EVENTS:
         CASE_APPROVAL_EVENTS[case_id].set()
         return {"status": "approved", "case_id": case_id}
