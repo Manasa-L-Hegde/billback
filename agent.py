@@ -71,6 +71,12 @@ class CaseSession:
     def t_extract(self, path, doc_type):
         data = extract(path, doc_type)
         self.state[doc_type] = data
+        if doc_type == "invoice" and data.get("uncertain"):
+            return {
+                "warning": "Document extraction uncertain: numbers could not be reliably verified.",
+                "reasons": data.get("uncertain_reasons", []),
+                "data": data
+            }
         return data
 
     def t_read_agreement(self, path):
@@ -83,6 +89,15 @@ class CaseSession:
     def t_audit(self):
         if "invoice" not in self.state:
             return {"error": "extract the invoice first"}
+        if self.state["invoice"].get("uncertain"):
+            res = {
+                "findings": [],
+                "total_overcharge": 0.0,
+                "status": "needs_review",
+                "message": "Audit stopped: document extraction was uncertain."
+            }
+            self.state["audit"] = res
+            return res
         agreed_rates = None
         if "agreement" in self.state and self.state["agreement"].get("agreed_rates"):
             agreed_rates = self.state["agreement"]["agreed_rates"]

@@ -27,11 +27,25 @@ def audit(bill, slip=None, agreed=None):
 
     items = bill.get("items", [])
 
+    # Track checks performed and skipped
+    checks = {
+        "arithmetic": "ok",
+        "delivery": "ok" if slip else "skipped",
+        "rates": "ok" if agreed else "skipped"
+    }
+
+    check_details = {
+        "arithmetic": "Arithmetic validated across lines, subtotal, and tax.",
+        "delivery": "Cross-checked delivered quantities and delivery fee against slip." if slip else "Delivery check skipped (no slip)",
+        "rates": "Cross-referenced item rates against agreed contract rates." if agreed else "Rate check skipped (no agreement)"
+    }
+
     # 1. line math
     for it in items:
         q, r, a = it.get("qty"), it.get("rate"), it.get("amount")
         if None not in (q, r, a) and abs(q * r - a) > TOL:
             add("line_math", it["name"], a - q * r, f"{q} x {r} = {q*r:.2f}, billed {a}")
+            checks["arithmetic"] = "failed"
 
     # 2. subtotal and grand total
     line_sum = sum(it.get("amount") or 0 for it in items)
@@ -86,7 +100,21 @@ def audit(bill, slip=None, agreed=None):
             add("tax_on_overcharge", "tax on overcharge", tax_amt,
                 f"{tax_rate * 100:.1f}% tax on item overcharge of {taxable_overcharge:.2f}")
 
-    return {"findings": out, "total_overcharge": round(sum(f["overcharge"] for f in out), 2)}
+    # Update check status flags
+    for f in out:
+        if f["type"] in ("line_math", "subtotal", "grand_total"):
+            checks["arithmetic"] = "failed"
+        elif f["type"] in ("delivery_fee", "not_delivered"):
+            checks["delivery"] = "failed"
+        elif f["type"] == "rate":
+            checks["rates"] = "failed"
+
+    return {
+        "findings": out,
+        "total_overcharge": round(sum(f["overcharge"] for f in out), 2),
+        "checks": checks,
+        "check_details": check_details
+    }
 
 if __name__ == "__main__":
     bill = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))

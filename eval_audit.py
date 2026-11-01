@@ -52,6 +52,12 @@ TEST_CASES = [
         "custom_rates": {"rice": 55.0},
         "expected_error": "rate",
         "description": "Token-containment test: Hinglish key 'rice' matches 'Sona Masoori Rice'"
+    },
+    {
+        "bill": "hck",
+        "slip": None,
+        "expected_error": None,
+        "description": "Shipping label / unpriced invoice (hck.jpeg) - Extraction guard catches uncertain document"
     }
 ]
 

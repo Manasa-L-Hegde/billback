@@ -17,9 +17,15 @@ def init_db():
         rate REAL NOT NULL,
         qty REAL,
         unit TEXT,
+        seeded INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+    # Add seeded column if table exists without it
+    cur.execute("PRAGMA table_info(item_history)")
+    cols = [col[1] for col in cur.fetchall()]
+    if "seeded" not in cols:
+        cur.execute("ALTER TABLE item_history ADD COLUMN seeded INTEGER DEFAULT 0")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS cases (
         id TEXT PRIMARY KEY,
@@ -184,12 +190,12 @@ def seed_vendor_history():
         for it in inv["items"]:
             norm_name = " ".join(str(it["name"]).lower().split())
             cur.execute("""
-            INSERT INTO item_history (vendor, invoice_no, date, item_name, item_norm, rate, qty, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO item_history (vendor, invoice_no, date, item_name, item_norm, rate, qty, unit, seeded)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
             """, (inv["vendor"], inv["invoice_no"], inv["date"], it["name"], norm_name, it["rate"], it["qty"], it["unit"]))
     conn.commit()
     conn.close()
-    print("Seeded 4 historical invoices for City Wholesale Mart.")
+    print("Seeded 4 historical invoices for City Wholesale Mart (seeded=true).")
 
 if __name__ == "__main__":
     init_db()

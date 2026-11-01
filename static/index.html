@@ -83,6 +83,13 @@
           <div id="cases-list" class="space-y-2">
             <div class="text-xs text-slate-400 italic py-2 text-center">No cases processed yet.</div>
           </div>
+          <button id="show-all-cases-btn" class="hidden mt-2 w-full text-center text-xs text-brand-600 hover:text-brand-800 font-semibold py-1">Show all</button>
+          <div id="dev-controls" class="hidden mt-3 pt-3 border-t border-slate-100">
+            <button id="clear-cases-btn" class="w-full py-1.5 px-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1 transition-colors">
+              <svg class="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              <span>Clear test cases</span>
+            </button>
+          </div>
         </div>
 
         <!-- DRIFT ALERTS -->
@@ -265,6 +272,10 @@
               <span>3. Audit Evidence</span>
               <span id="findings-count" class="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">0 findings</span>
             </h2>
+
+            <!-- HONEST AUDIT CHECKS CHIPS -->
+            <div id="check-chips" class="hidden mb-3 p-2 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+            </div>
 
             <!-- FINDINGS LIST -->
             <div id="findings-container" class="space-y-2 mb-4 max-h-56 overflow-y-auto">

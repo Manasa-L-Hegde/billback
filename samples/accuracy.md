@@ -15,13 +15,15 @@ Evaluated across 5 diverse real-world bills: utility, online food delivery, digi
 | `real3.jpg` | Mobile Recharge (GPay) | Jio Prepaid | 9 Sept 2026 | ₹800.90 | ₹800.90 | 2/2 | 100.0% | Plan price ₹799 + Platform fee ₹1.90 = ₹800.90 exact match |
 | `real4.jpg` | Pharmacy / Medicine | netmeds.com India Ki Pharmacy | 10-10-2026 | ₹3732.00 | ₹3732.00 | 4/4 | 100.0% | 4 prescription drugs: Prescription Item A (6), Prescription Item B (4), Prescription Item C (4), Prescription Item D (6). Discount of ₹883.10 reconciled; exact grand total ₹3,732.00. |
 | `real5.png` | E-Commerce Platform Fee | Flipkart Internet Private Limited | 17-09-2025 | ₹10.00 | ₹10.00 | 6/6 | 100.0% | 6 breakdown lines of platform fees summing to ₹10.00 total. Taxable value ₹8.46 + ₹1.54 GST correctly identified. |
+| `hck.jpeg` | E-Commerce Shipping Label | CAMPUS ACTIVEWEAR LIMITED | 25/10/26 | Unpriced label | None | 0/1 (Flagged) | 0.0% | **Extraction Guard Triggered**: Document was a logistics shipping label with no prices/rates printed. Identified as `uncertain` with status `needs_review`; silent failure prevented. |
 
 ### Real Photos Evaluation Summary:
-- **Total real bills evaluated:** 5
-- **Total line items on paper:** 14
-- **Total line items accurately extracted:** 14
-- **Real-photo line-item accuracy:** **100.0%** (14 / 14)
-- **Key finding:** Handled pharmaceutical tables with discounts and post-tax totals, low-resolution scanned tables, and partially taped restaurant delivery slips without missing line items.
+- **Total real bills evaluated:** 6
+- **Bills successfully parsed:** 5/6 (83.3%)
+- **Total line items on priced bills:** 14
+- **Total line items accurately extracted:** 14 / 14 (100.0%)
+- **Uncertain / Unpriced documents caught:** 1 (`hck.jpeg` correctly routed to `needs_review`)
+- **Key finding:** Handled pharmaceutical tables with discounts and post-tax totals, low-resolution scanned tables, and partially taped restaurant delivery slips. When unpriced labels (`hck.jpeg`) are uploaded, the extraction guard stops execution with `needs_review` and drafts no email.
 
 ---
 

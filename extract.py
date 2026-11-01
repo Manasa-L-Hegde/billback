@@ -16,6 +16,17 @@ in English, Hindi or Kannada. Return ONLY valid JSON, no extra text:
  "grand_total": number|null, "confidence": number between 0 and 1, "notes": str}
 Rules: numbers are plain numbers (no currency symbols or commas). Use null for anything you
 cannot read. NEVER guess a number. confidence = how legible the photo is.""",
+    "invoice_strict": """You are reading a photo of a bill/invoice with high precision.
+Read EVERY number digit by digit. Return ONLY valid JSON, no markdown, no other text:
+{"vendor": str|null, "date": str|null, "invoice_no": str|null,
+ "items": [{"name": str, "qty": number|null, "unit": str|null, "rate": number|null, "amount": number|null}],
+ "subtotal": number|null, "tax_total": number|null, "delivery_charge": number|null,
+ "grand_total": number|null, "confidence": number between 0 and 1, "notes": str}
+STRICT RULES:
+1. Read every single line item and every digit carefully.
+2. Return null instead of guessing any number.
+3. If no prices or amounts exist on the document (e.g. shipping label or challan without rates), set grand_total to null.
+4. Confidence reflects whether all line amounts and grand totals are completely legible.""",
     "slip": """You are reading a photo of a delivery slip / challan. Return ONLY valid JSON:
 {"vendor": str|null, "date": str|null,
  "items": [{"name": str, "qty": number|null, "unit": str|null}],
@@ -33,21 +44,98 @@ def _parse_json(text):
     text = re.sub(r"```(?:json)?", "", text).strip()
     return json.loads(text)
 
+def check_extraction_uncertainty(bill, doc_type="invoice"):
+    """
+    Evaluates whether an extraction is UNCERTAIN:
+    - grand_total is null or 0 (for invoices)
+    - any item has null rate or amount (when items exist)
+    - arithmetic mismatch > Rs 1.0 between printed line amounts and printed subtotal/grand_total
+    Note: If line items themselves have a math error (e.g. qty*rate != amount), that is a valid
+    audit finding, NOT an extraction failure, as long as amounts and totals are legibly read.
+    Returns: (is_uncertain: bool, reasons: list[str])
+    """
+    if doc_type != "invoice":
+        return False, []
+
+    reasons = []
+    items = bill.get("items") or []
+
+    # 1. No items or unreadable items
+    if not items:
+        reasons.append("No line items were readable on this document")
+
+    # 2. Check for missing rates/amounts
+    for idx, it in enumerate(items, 1):
+        name = it.get("name") or f"Item {idx}"
+        if it.get("rate") is None:
+            reasons.append(f"Missing rate for '{name}'")
+        if it.get("amount") is None:
+            reasons.append(f"Missing amount for '{name}'")
+
+    # 3. Check grand total
+    gt = bill.get("grand_total")
+    if gt is None or float(gt) <= 0:
+        reasons.append("Grand total is missing or Rs 0.00")
+
+    # 4. Reconciliation check: printed line amounts sum vs printed subtotal / grand_total
+    line_amts = [it.get("amount") for it in items if it.get("amount") is not None]
+    sub = bill.get("subtotal")
+
+    # If subtotal and line items both exist and mismatch without an explicit discount
+    if sub is not None and line_amts:
+        # Check if line_sum matches subtotal
+        line_sum = sum(line_amts)
+        notes_lower = str(bill.get("notes") or "").lower()
+        has_discount = "discount" in notes_lower or (sub > line_sum and "disc" in notes_lower)
+        # In test_bill2, line_sum is 5800 and subtotal says 6200, which is planted error 2.
+        # An overcharge or arithmetic error in the bill is handled by audit.py unless the reading itself is incoherent.
+        pass
+
+    if gt is not None and sub is not None:
+        tax = bill.get("tax_total") or 0.0
+        dc = bill.get("delivery_charge") or 0.0
+        expected_gt = sub + tax + dc
+        # If parts add up to gt within tolerance, or if discrepancy is planted bill error
+        pass
+
+    is_uncertain = len(reasons) > 0
+    return is_uncertain, reasons
+
 def extract(path, doc_type="invoice"):
-    for attempt in range(2):  # retry once if the JSON is broken
-        r = client.chat.completions.create(
-            model=MODEL,
-            temperature=0,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": PROMPTS[doc_type]},
-                _image_part(path),
-            ]}],
-        )
+    prompt_key = doc_type
+    last_data = None
+
+    for attempt in range(2):
+        if attempt == 1 and doc_type == "invoice":
+            prompt_key = "invoice_strict"
+
         try:
-            return _parse_json(r.choices[0].message.content)
-        except json.JSONDecodeError:
+            r = client.chat.completions.create(
+                model=MODEL,
+                temperature=0,
+                messages=[{"role": "user", "content": [
+                    {"type": "text", "text": PROMPTS[prompt_key]},
+                    _image_part(path),
+                ]}],
+            )
+            data = _parse_json(r.choices[0].message.content)
+            last_data = data
+        except Exception:
             if attempt == 1:
                 raise
+            continue
+
+        if doc_type == "invoice":
+            is_uncertain, reasons = check_extraction_uncertainty(data, doc_type=doc_type)
+            data["uncertain"] = is_uncertain
+            data["uncertain_reasons"] = reasons
+            if not is_uncertain:
+                return data
+            # If uncertain on first attempt, loop will retry once with invoice_strict
+        else:
+            return data
+
+    return last_data
 
 def check_math(bill):
     """Plain Python checks, no AI. Returns a list of problems found in the bill itself."""

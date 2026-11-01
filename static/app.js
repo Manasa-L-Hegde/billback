@@ -5,6 +5,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let eventSource = null;
   let totalRecoveredOverall = 0;
   let isRunning = false;
+  let allCases = [];
+  let showAllCases = false;
+  let currentCaseTerminalStatus = null;
 
   // Formatting helper: Indian digit grouping
   const formatINR = (amt) => {
@@ -27,6 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const casesList = document.getElementById('cases-list');
   const caseCountBadge = document.getElementById('case-count-badge');
   const refreshCasesBtn = document.getElementById('refresh-cases-btn');
+  const showAllCasesBtn = document.getElementById('show-all-cases-btn');
+  const devControls = document.getElementById('dev-controls');
+  const clearCasesBtn = document.getElementById('clear-cases-btn');
   const driftAlertsList = document.getElementById('drift-alerts-list');
   const timeline = document.getElementById('timeline');
   const timelineEmpty = document.getElementById('timeline-empty');
@@ -38,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const findingsCount = document.getElementById('findings-count');
   const totalClaimedEl = document.getElementById('total-claimed');
   const claimBadge = document.getElementById('claim-badge');
+  const checkChips = document.getElementById('check-chips');
   const emailCard = document.getElementById('email-card');
   const emailTo = document.getElementById('email-to');
   const emailSubject = document.getElementById('email-subject');
@@ -52,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const outcomeStatusBox = document.getElementById('outcome-status-box');
   const caseStatusText = document.getElementById('case-status-text');
   const caseStatusDot = document.getElementById('case-status-dot');
+  const caseStatusIndicator = document.getElementById('case-status-indicator');
 
   // Input & Dropzone Elements
   const invoiceInput = document.getElementById('invoice-input');
@@ -81,6 +89,78 @@ document.addEventListener('DOMContentLoaded', () => {
   let activeAgreementTab = 'chat';
   let stepIndex = 0;
   let activeToolCards = {};
+
+  // Status Pill Manager
+  // Supported States: Ready / Running / Awaiting approval / Settled / Needs review / Error
+  const updateStatusPill = (status) => {
+    if (!caseStatusDot || !caseStatusText) return;
+    switch (status) {
+      case 'Running':
+        caseStatusDot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse';
+        caseStatusText.textContent = 'Running';
+        if (caseStatusIndicator) caseStatusIndicator.className = 'hidden sm:flex items-center space-x-2 text-xs font-semibold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200';
+        break;
+      case 'Awaiting approval':
+        caseStatusDot.className = 'w-2 h-2 rounded-full bg-red-500 animate-ping';
+        caseStatusText.textContent = 'Awaiting approval';
+        if (caseStatusIndicator) caseStatusIndicator.className = 'hidden sm:flex items-center space-x-2 text-xs font-semibold text-red-700 bg-red-50 px-2.5 py-1 rounded-full border border-red-200';
+        break;
+      case 'Settled':
+        caseStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+        caseStatusText.textContent = 'Settled';
+        if (caseStatusIndicator) caseStatusIndicator.className = 'hidden sm:flex items-center space-x-2 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200';
+        break;
+      case 'Needs review':
+        caseStatusDot.className = 'w-2 h-2 rounded-full bg-amber-500';
+        caseStatusText.textContent = 'Needs review';
+        if (caseStatusIndicator) caseStatusIndicator.className = 'hidden sm:flex items-center space-x-2 text-xs font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-full border border-amber-300';
+        break;
+      case 'Error':
+        caseStatusDot.className = 'w-2 h-2 rounded-full bg-red-500';
+        caseStatusText.textContent = 'Error';
+        if (caseStatusIndicator) caseStatusIndicator.className = 'hidden sm:flex items-center space-x-2 text-xs font-semibold text-red-700 bg-red-50 px-2.5 py-1 rounded-full border border-red-200';
+        break;
+      case 'Ready':
+      default:
+        caseStatusDot.className = 'w-2 h-2 rounded-full bg-slate-400';
+        caseStatusText.textContent = 'Ready';
+        if (caseStatusIndicator) caseStatusIndicator.className = 'hidden sm:flex items-center space-x-2 text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200';
+        break;
+    }
+  };
+
+  // Check URL query parameters (?dev=1)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('dev') === '1' && devControls) {
+    devControls.classList.remove('hidden');
+  }
+
+  // Dev Clear Cases Button
+  if (clearCasesBtn) {
+    clearCasesBtn.addEventListener('click', async () => {
+      if (!confirm('Clear all test cases and reset demo data?')) return;
+      try {
+        const res = await fetch('/api/dev/reset', { method: 'POST' });
+        if (res.ok) {
+          await loadSidebarData();
+          updateStatusPill('Ready');
+          alert('Demo data wiped and drift history re-seeded.');
+        } else {
+          alert('Failed to reset demo data.');
+        }
+      } catch (err) {
+        alert('Reset error: ' + err.message);
+      }
+    });
+  }
+
+  // Show all cases toggle
+  if (showAllCasesBtn) {
+    showAllCasesBtn.addEventListener('click', () => {
+      showAllCases = !showAllCases;
+      renderPastCases(allCases);
+    });
+  }
 
   // Slider change
   minAcceptSlider.addEventListener('input', (e) => {
@@ -221,6 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const resCases = await fetch('/api/cases');
       if (resCases.ok) {
         const cases = await resCases.json();
+        allCases = cases;
         renderPastCases(cases);
       }
 
@@ -239,23 +320,49 @@ document.addEventListener('DOMContentLoaded', () => {
     caseCountBadge.textContent = `${cases.length} cases`;
     if (!cases.length) {
       casesList.innerHTML = `<div class="text-xs text-slate-400 italic py-2 text-center">No cases processed yet.</div>`;
+      if (showAllCasesBtn) showAllCasesBtn.classList.add('hidden');
+      animateCounter(totalRecoveredOverall, 0, 500);
+      totalRecoveredOverall = 0;
       return;
     }
 
-    casesList.innerHTML = cases.map(c => `
-      <div class="p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50 transition-colors text-xs cursor-pointer">
-        <div class="flex items-center justify-between font-semibold text-slate-800">
-          <span class="truncate max-w-[140px]">${c.vendor || 'Vendor Audit'}</span>
-          <span class="text-emerald-700 font-bold">${formatINR(c.recovered || 0)}</span>
-        </div>
-        <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
-          <span>${c.invoice_no || c.id.slice(0, 14)}</span>
-          <span class="px-1.5 py-0.2 rounded ${c.status === 'completed' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${c.status || 'saved'}</span>
-        </div>
-      </div>
-    `).join('');
+    const displayCases = showAllCases ? cases : cases.slice(0, 8);
+    if (showAllCasesBtn) {
+      if (cases.length > 8) {
+        showAllCasesBtn.classList.remove('hidden');
+        showAllCasesBtn.textContent = showAllCases ? 'Show less (latest 8)' : `Show all (${cases.length} cases)`;
+      } else {
+        showAllCasesBtn.classList.add('hidden');
+      }
+    }
 
-    // Update global recovered counter
+    casesList.innerHTML = displayCases.map(c => {
+      let vendorName = c.vendor || 'Unreadable file';
+      if (vendorName.toLowerCase() === 'unknown' || vendorName.toLowerCase() === 'unknown vendor') {
+        vendorName = 'Unreadable file';
+      }
+      const isCompleted = c.status === 'completed';
+      const isEscalated = c.status === 'escalated';
+      const isNeedsReview = c.status === 'needs_review';
+      const isError = c.status === 'error';
+      const statusBadge = isCompleted 
+        ? 'bg-emerald-100 text-emerald-800' 
+        : (isEscalated ? 'bg-amber-100 text-amber-800' : (isNeedsReview ? 'bg-amber-100 text-amber-800' : (isError ? 'bg-red-100 text-red-800' : 'bg-slate-100 text-slate-600')));
+      return `
+        <div class="p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50 transition-colors text-xs cursor-pointer">
+          <div class="flex items-center justify-between font-semibold text-slate-800">
+            <span class="truncate max-w-[140px]">${vendorName}</span>
+            <span class="text-emerald-700 font-bold">${formatINR(c.recovered || 0)}</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+            <span>${c.invoice_no || c.id.slice(0, 14)}</span>
+            <span class="px-1.5 py-0.2 rounded ${statusBadge}">${c.status || 'saved'}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Update global recovered counter summing only current DB cases
     const totalRecovered = cases.reduce((sum, c) => sum + (Number(c.recovered) || 0), 0);
     animateCounter(totalRecoveredOverall, totalRecovered, 800);
     totalRecoveredOverall = totalRecovered;
@@ -281,10 +388,34 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshCasesBtn.addEventListener('click', loadSidebarData);
   loadSidebarData();
 
+  // Demo preview query param handlers (for inspection & screenshot verification)
+  if (urlParams.get('demo_preview') === 'needs_review') {
+    handleExtractionUncertain({
+      case_id: 'case_real_hck',
+      reasons: [
+        "Missing rate for 'CAMPUS LIGHTNING Sneakers For Women WHT/L'",
+        "Missing amount for 'CAMPUS LIGHTNING Sneakers For Women WHT/L'",
+        "Grand total is missing or Rs 0.00"
+      ]
+    });
+  } else if (urlParams.get('demo_preview') === 'invoice_only') {
+    renderFindings([], 0, {
+      arithmetic: 'ok',
+      delivery: 'skipped',
+      rates: 'skipped'
+    }, {
+      arithmetic: 'Arithmetic validated across lines, subtotal, and tax.',
+      delivery: 'Delivery check skipped (no slip)',
+      rates: 'Rate check skipped (no agreement)'
+    });
+    updateStatusPill('Settled');
+  }
+
   // Reset workspace for new case
   const resetWorkspace = () => {
     stepIndex = 0;
     activeToolCards = {};
+    currentCaseTerminalStatus = null;
     stepCounter.textContent = '0 steps';
     timeline.innerHTML = '';
     timelineEmpty.classList.remove('hidden');
@@ -295,14 +426,17 @@ document.addEventListener('DOMContentLoaded', () => {
     totalClaimedEl.textContent = '₹0.00';
     claimBadge.textContent = 'Auditing';
     claimBadge.className = 'text-[11px] font-medium px-2 py-1 rounded bg-amber-900/60 text-amber-300';
+    if (checkChips) {
+      checkChips.classList.add('hidden');
+      checkChips.innerHTML = '';
+    }
     
     emailCard.classList.add('hidden');
     negotiationCard.classList.add('hidden');
     chatThread.innerHTML = '';
     outcomeCard.classList.add('hidden');
 
-    caseStatusDot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse';
-    caseStatusText.textContent = 'Running';
+    updateStatusPill('Running');
     liveDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
   };
 
@@ -334,6 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       alert(`Demo Error: ${err.message}`);
       setRunning(false);
+      updateStatusPill('Error');
     }
   });
 
@@ -381,6 +516,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       alert(`Error starting audit: ${err.message}`);
       setRunning(false);
+      updateStatusPill('Error');
     }
   });
 
@@ -402,6 +538,13 @@ document.addEventListener('DOMContentLoaded', () => {
       handleToolResult(payload);
     });
 
+    eventSource.addEventListener('extraction_uncertain', (e) => {
+      const payload = JSON.parse(e.data);
+      currentCaseTerminalStatus = 'Needs review';
+      handleExtractionUncertain(payload);
+      updateStatusPill('Needs review');
+    });
+
     eventSource.addEventListener('email_draft', (e) => {
       const payload = JSON.parse(e.data);
       handleEmailDraft(payload);
@@ -409,6 +552,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eventSource.addEventListener('awaiting_approval', (e) => {
       const payload = JSON.parse(e.data);
+      currentCaseTerminalStatus = 'Awaiting approval';
+      updateStatusPill('Awaiting approval');
       handleAwaitingApproval(payload);
     });
 
@@ -424,7 +569,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eventSource.addEventListener('outcome', (e) => {
       const payload = JSON.parse(e.data);
+      const st = (payload.status || '').toLowerCase();
+      if (st.includes('needs review') || (payload.reasons && payload.reasons.length > 0)) {
+        currentCaseTerminalStatus = 'Needs review';
+      } else {
+        currentCaseTerminalStatus = 'Settled';
+      }
       handleOutcome(payload);
+      updateStatusPill(currentCaseTerminalStatus);
     });
 
     eventSource.addEventListener('error', (e) => {
@@ -437,9 +589,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) {}
       }
       
-      // If error occurred before outcome, show friendly error banner with Retry
       const existingOutcome = document.getElementById('outcome-card');
-      if (existingOutcome && existingOutcome.classList.contains('hidden')) {
+      if (existingOutcome && existingOutcome.classList.contains('hidden') && currentCaseTerminalStatus !== 'Needs review') {
         const errorCard = document.createElement('div');
         errorCard.className = 'p-3.5 rounded-xl border border-red-200 bg-red-50 text-xs text-red-800 space-y-2 animate-fade-in';
         errorCard.innerHTML = `
@@ -454,11 +605,12 @@ document.addEventListener('DOMContentLoaded', () => {
           </button>
         `;
         timeline.appendChild(errorCard);
-        caseStatusDot.className = 'w-2 h-2 rounded-full bg-red-500';
-        caseStatusText.textContent = 'Error';
+        currentCaseTerminalStatus = 'Error';
+        updateStatusPill('Error');
+      } else if (currentCaseTerminalStatus) {
+        updateStatusPill(currentCaseTerminalStatus);
       } else {
-        caseStatusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
-        caseStatusText.textContent = 'Completed';
+        updateStatusPill('Settled');
       }
 
       liveDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-300';
@@ -468,6 +620,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eventSource.addEventListener('end', () => {
       eventSource.close();
+      liveDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-300';
+      if (!currentCaseTerminalStatus) {
+        currentCaseTerminalStatus = 'Settled';
+      }
+      updateStatusPill(currentCaseTerminalStatus);
       setRunning(false);
       loadSidebarData();
     });
@@ -539,7 +696,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const findings = res.findings || [];
       const overcharge = res.total_overcharge || 0;
       summaryText = `Audit finished: ${findings.length} findings, ${formatINR(overcharge)} total overcharge.`;
-      renderFindings(findings, overcharge);
+      renderFindings(findings, overcharge, res.checks, res.check_details);
     } else if (toolName === 'send_dispute_email') {
       const res = data.result || {};
       summaryText = `Dispute email dispatched to ${res.recipient || 'vendor'} (${res.status || 'sent'}).`;
@@ -557,10 +714,93 @@ document.addEventListener('DOMContentLoaded', () => {
     card.appendChild(details);
   };
 
-  // Render Findings in Column 3
-  const renderFindings = (findings, totalOvercharge) => {
+  // Amber Card for Extraction Guard (Task 1)
+  const handleExtractionUncertain = (data) => {
+    updateStatusPill('Needs review');
+    const reasons = data.reasons || ['Document numbers could not be reliably verified.'];
+    const reasonsList = reasons.map(r => `<li class="flex items-start space-x-1.5"><span class="text-amber-600 font-bold">•</span><span>${r}</span></li>`).join('');
+
+    const uncertainCard = document.createElement('div');
+    uncertainCard.id = 'uncertain-card';
+    uncertainCard.className = 'p-4 rounded-xl border border-amber-300 bg-amber-50 text-xs text-amber-900 space-y-3 animate-fade-in shadow-sm';
+    uncertainCard.innerHTML = `
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2 font-bold text-amber-900 text-sm">
+          <svg class="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span>Couldn't read this bill reliably</span>
+        </div>
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-200 text-amber-900">Needs Review</span>
+      </div>
+      <p class="text-xs text-amber-800">The extraction guard identified potential ambiguity or missing price values in the uploaded document:</p>
+      <ul class="text-[11px] text-amber-800 space-y-1 pl-1 bg-amber-100/60 p-2.5 rounded-lg border border-amber-200">
+        ${reasonsList}
+      </ul>
+      <div class="pt-1 flex items-center space-x-2">
+        <button type="button" onclick="window.location.reload()" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium text-xs transition-colors flex items-center space-x-1.5 shadow-sm">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span>Retry with Clearer Photo</span>
+        </button>
+      </div>
+    `;
+    timeline.appendChild(uncertainCard);
+    uncertainCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Update findings container
+    findingsContainer.innerHTML = `
+      <div class="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800 space-y-2">
+        <div class="font-bold text-amber-900">Extraction Guard Stopped Audit</div>
+        <p class="text-[11px]">No dispute email was drafted or sent because prices or line values could not be verified with confidence.</p>
+      </div>
+    `;
+    claimBadge.textContent = 'Needs Review';
+    claimBadge.className = 'text-[11px] font-semibold px-2 py-1 rounded bg-amber-900/60 text-amber-200';
+  };
+
+  // Render Findings in Column 3 (Honest Check Report Chips)
+  const renderFindings = (findings, totalOvercharge, checks, checkDetails) => {
     findingsCount.textContent = `${findings.length} findings`;
     totalClaimedEl.textContent = formatINR(totalOvercharge);
+
+    // Display 3 Honest Check Chips: Arithmetic / Delivery vs slip / Rates vs agreement
+    if (checkChips && checks) {
+      checkChips.classList.remove('hidden');
+      const renderChip = (label, status, skippedText) => {
+        if (status === 'ok') {
+          return `
+            <div class="flex items-center justify-between px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
+              <span>${label}</span>
+              <span class="flex items-center space-x-1 font-bold text-emerald-700">
+                <svg class="w-3.5 h-3.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>
+                <span>OK</span>
+              </span>
+            </div>
+          `;
+        } else if (status === 'failed') {
+          return `
+            <div class="flex items-center justify-between px-2.5 py-1 rounded-md bg-red-50 border border-red-200 text-red-800 text-[11px] font-semibold">
+              <span>${label}</span>
+              <span class="flex items-center space-x-1 font-bold text-red-700">
+                <svg class="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
+                <span>Failed</span>
+              </span>
+            </div>
+          `;
+        } else {
+          return `
+            <div class="flex items-center justify-between px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-600 text-[11px]">
+              <span>${label}</span>
+              <span class="text-slate-400 italic font-medium">${skippedText}</span>
+            </div>
+          `;
+        }
+      };
+
+      checkChips.innerHTML = `
+        ${renderChip('Arithmetic', checks.arithmetic || 'ok', 'Skipped')}
+        ${renderChip('Delivery vs slip', checks.delivery || 'skipped', 'Skipped (no slip)')}
+        ${renderChip('Rates vs agreement', checks.rates || 'skipped', 'Skipped (no agreement)')}
+      `;
+    }
 
     if (totalOvercharge > 0) {
       claimBadge.textContent = 'Overcharge Found';
@@ -571,9 +811,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (!findings.length) {
+      let cleanSummary = 'Clean bill verified: Arithmetic validated with zero overcharges.';
+      if (checks && checks.delivery === 'ok') {
+        cleanSummary += ' Delivered items matched delivery slip.';
+      } else if (checks && checks.delivery === 'skipped') {
+        cleanSummary += ' Delivery check skipped (no slip).';
+      }
+      if (checks && checks.rates === 'ok') {
+        cleanSummary += ' Rates matched agreed contract terms.';
+      } else if (checks && checks.rates === 'skipped') {
+        cleanSummary += ' Rate check skipped (no agreement).';
+      }
+
       findingsContainer.innerHTML = `
-        <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 text-center font-medium">
-          Clean bill verified. Line item arithmetic, delivery notes, and contract rates are 100% accurate.
+        <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 text-center font-medium space-y-1">
+          <div class="font-bold flex items-center justify-center space-x-1">
+            <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span>Clean Bill Verified</span>
+          </div>
+          <p class="text-[11px] text-emerald-700">${cleanSummary}</p>
         </div>
       `;
       return;
@@ -623,8 +879,7 @@ document.addEventListener('DOMContentLoaded', () => {
     approveBtn.disabled = false;
     approveBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-    caseStatusDot.className = 'w-2 h-2 rounded-full bg-red-500 animate-ping';
-    caseStatusText.textContent = 'Waiting for your approval';
+    updateStatusPill('Awaiting approval');
   };
 
   // Approve Button Click
@@ -683,12 +938,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const isAccepted = data.action === 'ACCEPT';
     const isEscalated = data.action === 'ESCALATE';
-    const bubbleColor = isAccepted ? 'bg-emerald-600 text-white' : (isEscalated ? 'bg-red-600 text-white' : 'bg-brand-600 text-white');
+    const bubbleColor = isAccepted ? 'bg-emerald-600 text-white' : (isEscalated ? 'bg-amber-600 text-white' : 'bg-brand-600 text-white');
 
     bubble.innerHTML = `
       <div class="flex items-center space-x-1.5 text-[11px] text-brand-700 font-semibold">
         <span>${data.sender}</span>
-        <span class="px-1.5 py-0.2 rounded text-[10px] ${isAccepted ? 'bg-emerald-100 text-emerald-800' : 'bg-brand-100 text-brand-800'}">${data.action}</span>
+        <span class="px-1.5 py-0.2 rounded text-[10px] ${isAccepted ? 'bg-emerald-100 text-emerald-800' : (isEscalated ? 'bg-amber-100 text-amber-800' : 'bg-brand-100 text-brand-800')}">${data.action}</span>
       </div>
       <div class="p-2.5 rounded-xl rounded-tr-none ${bubbleColor} text-xs max-w-[90%] shadow-sm">
         ${data.message.replace(/\n/g, '<br>')}
@@ -705,7 +960,16 @@ document.addEventListener('DOMContentLoaded', () => {
     outcomeRecovered.textContent = formatINR(data.recovered || 0);
 
     const isSettled = (data.recovered || 0) > 0;
-    outcomeStatusBox.className = `p-3 rounded-lg text-xs font-semibold ${isSettled ? 'bg-emerald-100 text-emerald-900 border border-emerald-200' : 'bg-slate-100 text-slate-800'}`;
+    const isNeedsReview = (data.status || '').toLowerCase().includes('needs review') || (data.reasons && data.reasons.length > 0);
+    
+    let boxClass = 'bg-slate-100 text-slate-800';
+    if (isNeedsReview) {
+      boxClass = 'bg-amber-100 text-amber-900 border border-amber-300';
+    } else if (isSettled) {
+      boxClass = 'bg-emerald-100 text-emerald-900 border border-emerald-200';
+    }
+
+    outcomeStatusBox.className = `p-3 rounded-lg text-xs font-semibold ${boxClass}`;
     outcomeStatusBox.innerHTML = `
       <div class="flex items-center space-x-2">
         <svg class="w-4 h-4 text-emerald-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -749,4 +1013,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }, stepTime);
   };
 });
-

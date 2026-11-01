@@ -107,6 +107,12 @@ def list_cases():
     conn.close()
     return rows
 
+@app.post("/api/dev/reset")
+def dev_reset_cases():
+    from reset_demo import reset_demo
+    reset_demo()
+    return {"status": "ok", "message": "Demo data wiped and drift history re-seeded"}
+
 @app.get("/api/vendors/{name}/drift")
 def get_vendor_drift(name: str):
     return {"vendor": name, "alerts": detect_drift(name)}
@@ -195,6 +201,28 @@ async def execute_case_workflow(case_id: str):
         state["invoice"] = inv_data
         record_invoice_items(inv_data)
         await emit("tool_result", {"step": 1, "tool": "extract_document", "doc_type": "invoice", "result": inv_data})
+
+        # Extraction Guard Check
+        if inv_data.get("uncertain"):
+            reasons = inv_data.get("uncertain_reasons") or ["Extraction validation failed"]
+            vendor_name = inv_data.get("vendor") or "Unreadable Vendor"
+            inv_no = inv_data.get("invoice_no") or "N/A"
+            outcome = {
+                "claimed": 0.0,
+                "recovered": 0.0,
+                "rounds": 0,
+                "status": "Needs review: Document extraction uncertain. Review or re-upload clearer image.",
+                "reasons": reasons
+            }
+            await emit("extraction_uncertain", {
+                "case_id": case_id,
+                "reasons": reasons,
+                "message": "Couldn't read this bill reliably",
+                "extracted_data": inv_data
+            })
+            await emit("outcome", outcome)
+            _update_db_case(case_id, vendor_name, inv_no, "needs_review", 0.0, 0.0, {"findings": [], "total_overcharge": 0.0, "reasons": reasons}, outcome, "")
+            return
 
         # Step 2: Extract Slip if present
         if slip_path:
@@ -349,12 +377,13 @@ async def execute_case_workflow(case_id: str):
             "transcript": transcript
         }
         await emit("outcome", outcome)
-        _update_db_case(case_id, vendor_name, inv_no, "completed", total_claimed, recovered, audit_res, outcome, email_body)
+        db_status = "escalated" if "escalat" in final_status.lower() else "completed"
+        _update_db_case(case_id, vendor_name, inv_no, db_status, total_claimed, recovered, audit_res, outcome, email_body)
 
     except Exception as e:
         err_msg = str(e)
         await emit("error", {"message": err_msg})
-        _update_db_case(case_id, "Unknown", "ERR", "error", 0.0, 0.0, None, {"error": err_msg}, "")
+        _update_db_case(case_id, "Unreadable file", "ERR", "error", 0.0, 0.0, None, {"error": err_msg}, "")
     finally:
         for q in list(CASE_SUBSCRIBERS.get(case_id, [])):
             await q.put(None)
