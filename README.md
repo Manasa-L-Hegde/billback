@@ -113,8 +113,8 @@ flowchart TD
 - **Voice Agreement Input**:
   - Voice agreements use the browser's native Web Speech API (supporting Indian English, Hindi, and Kannada) to produce a local transcript, which is then parsed by `muse-spark-1.3`. Meta's `input_audio` multimodal format was tested and found to be currently unsupported on the standard chat completions endpoint.
 - **Real-Photo Accuracy**:
-  - Evaluated separately on 5 real-world bills across utilities, restaurants, mobile recharges, pharmacy invoices, and platform charges: **100.0% line-item accuracy** (14 / 14 items matched exactly; documented in `samples/accuracy.md`).
-  - Synthetic test scores (100%) reflect baseline model capabilities on clean digital renders; real-world photos were tested against tape occlusion, perspective, and discount calculations.
+  - Evaluated on 5 real bills (14 line items, all matched; mostly printed or digital receipts; handwritten physical paper bills not yet tested; documented in `samples/accuracy.md`).
+  - Synthetic test scores (100%) reflect baseline model capabilities on clean digital renders; real-world receipts were tested against tape occlusion, platform breakdowns, and complex pharmacy trade discount calculations.
 - **What BillBack Cannot Do**:
   - It does not initiate legal court filings or debt collection lawsuits.
   - It does not connect directly to banking APIs for automated fund wire transfers; settlements are issued as credit notes or corrected invoices.
