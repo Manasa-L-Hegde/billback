@@ -353,7 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 hover:bg-slate-50 transition-colors text-xs cursor-pointer">
           <div class="flex items-center justify-between font-semibold text-slate-800">
             <span class="truncate max-w-[140px]">${vendorName}</span>
-            <span class="text-emerald-700 font-bold">${formatINR(c.recovered || 0)}</span>
+            <span class="${isEscalated ? 'text-amber-700 font-semibold text-[11px]' : 'text-emerald-700 font-bold'}">${isEscalated ? 'Pending decision' : formatINR(c.recovered || 0)}</span>
           </div>
           <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
             <span>${c.invoice_no || c.id.slice(0, 14)}</span>
@@ -427,6 +427,104 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
     timeline.appendChild(errorCard);
     updateStatusPill('Error');
+  } else if (urlParams.get('demo_preview') === 'demo_settled') {
+    timelineEmpty.classList.add('hidden');
+    handleToolStart({ step: 1, tool: 'extract_document', doc_type: 'invoice', path: 'samples/test_bill5.jpg' });
+    handleToolResult({ step: 1, tool: 'extract_document', doc_type: 'invoice', source: 'live', latency: 4.8, tokens: 2410, result: { vendor: 'Kaveri Grain Stores', invoice_no: 'INV-2026-089', grand_total: 4860.0 } });
+    handleToolStart({ step: 2, tool: 'extract_document', doc_type: 'slip', path: 'samples/test_slip5.jpg' });
+    handleToolResult({ step: 2, tool: 'extract_document', doc_type: 'slip', source: 'live', latency: 3.2, tokens: 1480, result: { vendor: 'Kaveri Grain Stores', items: [{ item: 'Sunflower Oil 1L', delivered_qty: 2 }] } });
+    renderFindings([
+      { item: 'Sunflower Oil 1L', overcharge: 165.0, type: 'delivery_fee', reason: 'Billed 3 units @ Rs. 165, slip confirms 2 delivered (-1 unit)' },
+      { item: 'Toor Dal 1kg', overcharge: 40.0, type: 'rate', reason: 'Billed @ Rs. 160/kg, agreement specifies Rs. 140/kg (diff Rs. 20 * 2kg)' },
+      { item: 'Basmati Rice 5kg', overcharge: 50.0, type: 'rate', reason: 'Billed @ Rs. 450, agreement specifies Rs. 400 (diff Rs. 50)' },
+      { item: 'Applicable GST (5%)', overcharge: 12.75, type: 'tax_on_overcharge', reason: '5% GST charged on overcharged goods' }
+    ], 267.75, { arithmetic: 'ok', delivery: 'ok', rates: 'ok' }, {});
+    handleEmailDraft({
+      to: 'vendor@example.com',
+      subject: 'Billing Discrepancy Notice - Invoice #INV-2026-089',
+      body: 'Dear Kaveri Grain Stores,\n\nOur audit of Invoice #INV-2026-089 identified billing discrepancies totaling Rs. 267.75 across undelivered oil units and rate variations against our agreed terms. Please find itemized evidence attached.\n\nBest regards,\nAudit Team'
+    });
+    handleVendorReply({
+      sender: 'Kaveri Grain Stores (Vendor)',
+      round: 1,
+      offer: 267.75,
+      source: 'live',
+      latency: 3.4,
+      reply: 'We have reviewed your delivery slip and agreed rates. We accept the discrepancy and will issue a credit note for Rs. 267.75 immediately.'
+    });
+    handleAgentReply({
+      sender: 'BillBack Autonomous Agent',
+      action: 'ACCEPT',
+      message: 'Settlement accepted. Credit note for Rs. 267.75 meets recovery threshold (100% of claim). Closing dispute.'
+    });
+    handleOutcome({
+      claimed: 267.75,
+      recovered: 267.75,
+      rounds: 1,
+      status: 'Settled: Full dispute amount agreed (Rs. 267.75 in Round 1)'
+    });
+    updateStatusPill('Settled');
+  } else if (urlParams.get('demo_preview') === 'deny_escalated') {
+    timelineEmpty.classList.add('hidden');
+    handleToolStart({ step: 1, tool: 'extract_document', doc_type: 'invoice', path: 'samples/test_bill5.jpg' });
+    handleToolResult({ step: 1, tool: 'extract_document', doc_type: 'invoice', source: 'live', latency: 4.6, tokens: 2380, result: { vendor: 'Kaveri Grain Stores', invoice_no: 'INV-2026-089', grand_total: 4860.0 } });
+    renderFindings([
+      { item: 'Sunflower Oil 1L', overcharge: 165.0, type: 'delivery_fee', reason: 'Billed 3 units @ Rs. 165, slip confirms 2 delivered (-1 unit)' },
+      { item: 'Toor Dal 1kg', overcharge: 40.0, type: 'rate', reason: 'Billed @ Rs. 160/kg, agreement specifies Rs. 140/kg (diff Rs. 20 * 2kg)' }
+    ], 205.0, { arithmetic: 'ok', delivery: 'ok', rates: 'ok' }, {});
+    handleEmailDraft({
+      to: 'vendor@example.com',
+      subject: 'Billing Discrepancy Notice - Invoice #INV-2026-089',
+      body: 'Dear Kaveri Grain Stores,\n\nOur audit identified Rs. 205.00 in billing discrepancies. We request immediate adjustment.\n\nBest regards,\nAudit Team'
+    });
+    handleVendorReply({
+      sender: 'Kaveri Grain Stores (Vendor)',
+      round: 1,
+      offer: 0.0,
+      source: 'live',
+      latency: 3.2,
+      reply: 'We reject this claim. Our dispatch team confirms full shipment.'
+    });
+    handleAgentReply({
+      sender: 'BillBack Autonomous Agent',
+      action: 'COUNTER',
+      message: 'Signed physical delivery slip confirms only 2 units received. Claim stands at Rs. 205.00.'
+    });
+    handleVendorReply({
+      sender: 'Kaveri Grain Stores (Vendor)',
+      round: 2,
+      offer: 0.0,
+      source: 'live',
+      latency: 3.5,
+      reply: 'Our management has denied this claim. No credit note will be issued.'
+    });
+    handleAgentReply({
+      sender: 'BillBack Autonomous Agent',
+      action: 'COUNTER',
+      message: 'Attached PO timestamp and delivery signature refute denial. Resolution required.'
+    });
+    handleVendorReply({
+      sender: 'Kaveri Grain Stores (Vendor)',
+      round: 3,
+      offer: 0.0,
+      source: 'live',
+      latency: 3.6,
+      reply: 'Final decision: Claim denied.'
+    });
+    handleAgentReply({
+      sender: 'BillBack Autonomous Agent',
+      action: 'ESCALATE',
+      message: 'Vendor offer (Rs. 0.00) below floor (80%). Escalating to human supervisor for legal/management review.'
+    });
+    handleOutcome({
+      claimed: 205.0,
+      recovered: 0.0,
+      vendor_offer: 0.0,
+      escalated: true,
+      rounds: 3,
+      status: 'Vendor offer Rs. 0.00, awaiting your decision'
+    });
+    updateStatusPill('Ready');
   }
 
   // Reset workspace for new case
@@ -693,12 +791,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const card = activeToolCards[toolName];
     if (!card) return;
 
-    // Update status badge to completed
+    // Update status badge to completed with Live/Cache source tag
     const badge = card.querySelector('.status-badge');
     if (badge) {
+      let sourceTag = '';
+      if (data.source === 'live') {
+        sourceTag = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Live (${data.latency || 0}s${data.tokens ? ', ' + data.tokens + ' tok' : ''})</span>`;
+      } else if (data.source === 'cache') {
+        sourceTag = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">Cached replay</span>`;
+      } else if (data.source === 'deterministic_python') {
+        sourceTag = `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">Deterministic Python</span>`;
+      }
+
       badge.innerHTML = `
-        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-        <span class="text-[11px] text-emerald-700 font-semibold">Done</span>
+        <div class="flex items-center space-x-1.5">
+          ${sourceTag}
+          <div class="flex items-center space-x-1">
+            <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span class="text-[11px] text-emerald-700 font-semibold">Done</span>
+          </div>
+        </div>
       `;
     }
 
@@ -708,8 +820,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (toolName === 'extract_document') {
       const res = data.result || {};
-      const itemCount = (res.items || []).length;
-      summaryText = `Extracted ${itemCount} items from ${res.vendor || 'document'} (Grand Total: ${formatINR(res.grand_total || 0)})`;
+      const items = res.items || [];
+      const itemCount = items.length;
+      // Item 3: Slips show total quantity across items instead of Grand Total 0.00
+      if (data.doc_type === 'slip' || res.grand_total === null || res.grand_total === undefined) {
+        const totalQty = items.reduce((acc, it) => acc + (parseFloat(it.qty) || 0), 0);
+        summaryText = `Extracted delivery slip from ${res.vendor || 'document'} (Total qty: ${totalQty} units across ${itemCount} items)`;
+      } else {
+        summaryText = `Extracted ${itemCount} items from ${res.vendor || 'document'} (Grand Total: ${formatINR(res.grand_total || 0)})`;
+      }
     } else if (toolName === 'read_agreement') {
       const res = data.result || {};
       const ratesCount = Object.keys(res.agreed_rates || {}).length;
@@ -942,11 +1061,20 @@ document.addEventListener('DOMContentLoaded', () => {
     negotiationCard.classList.remove('hidden');
     const bubble = document.createElement('div');
     bubble.className = 'flex flex-col space-y-1 items-start';
+
+    let sourceTag = '';
+    if (data.source === 'live') {
+      sourceTag = `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">Live (${data.latency || 0}s)</span>`;
+    } else if (data.source === 'cache') {
+      sourceTag = `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">Cached replay</span>`;
+    }
+
     bubble.innerHTML = `
       <div class="flex items-center space-x-1.5 text-[11px] text-amber-800 font-semibold">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
         <span>${data.sender} (Round ${data.round})</span>
         <span class="text-slate-400 font-normal">· Offer: ${formatINR(data.offer || 0)}</span>
+        ${sourceTag}
       </div>
       <div class="p-2.5 rounded-xl rounded-tl-none bg-amber-50/80 border border-amber-200 text-xs text-slate-800 max-w-[90%] shadow-sm">
         ${data.reply.replace(/\n/g, '<br>')}
@@ -983,23 +1111,42 @@ document.addEventListener('DOMContentLoaded', () => {
   const handleOutcome = (data) => {
     outcomeCard.classList.remove('hidden');
     outcomeClaimed.textContent = formatINR(data.claimed || 0);
-    outcomeRecovered.textContent = formatINR(data.recovered || 0);
 
-    const isSettled = (data.recovered || 0) > 0;
+    const isEscalated = data.escalated || (data.status || '').toLowerCase().includes('awaiting your decision') || (data.status || '').toLowerCase().includes('escalat');
     const isNeedsReview = (data.status || '').toLowerCase().includes('needs review') || (data.reasons && data.reasons.length > 0);
+    const isSettled = !isEscalated && !isNeedsReview && (data.recovered || 0) > 0;
+
+    // Item 5: Escalated cases show ₹0.00 recovered and display "Vendor offer ₹X, awaiting your decision"
+    if (isEscalated) {
+      outcomeRecovered.textContent = '₹0.00';
+      outcomeRecovered.className = 'text-base font-bold text-amber-700';
+    } else {
+      outcomeRecovered.textContent = formatINR(data.recovered || 0);
+      outcomeRecovered.className = 'text-base font-bold text-emerald-600';
+    }
     
-    let boxClass = 'bg-slate-100 text-slate-800';
+    let boxClass = 'bg-slate-100 text-slate-800 border border-slate-200';
+    let iconSvg = '<svg class="w-4 h-4 text-slate-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+    
     if (isNeedsReview) {
-      boxClass = 'bg-amber-100 text-amber-900 border border-amber-300';
+      boxClass = 'bg-amber-50 text-amber-900 border border-amber-300';
+      iconSvg = '<svg class="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
+    } else if (isEscalated) {
+      boxClass = 'bg-amber-50 text-amber-900 border border-amber-300';
+      iconSvg = '<svg class="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
     } else if (isSettled) {
-      boxClass = 'bg-emerald-100 text-emerald-900 border border-emerald-200';
+      boxClass = 'bg-emerald-50 text-emerald-900 border border-emerald-300';
+      iconSvg = '<svg class="w-4 h-4 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
     }
 
     outcomeStatusBox.className = `p-3 rounded-lg text-xs font-semibold ${boxClass}`;
     outcomeStatusBox.innerHTML = `
-      <div class="flex items-center space-x-2">
-        <svg class="w-4 h-4 text-emerald-700 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <span>${data.status}</span>
+      <div class="flex items-start space-x-2">
+        ${iconSvg}
+        <div class="space-y-0.5">
+          <div class="font-bold text-slate-900">${data.status}</div>
+          ${isEscalated ? `<div class="text-[11px] font-normal text-amber-800">Agent rejected offer below floor. Amount not counted as recovered until approved by human.</div>` : ''}
+        </div>
       </div>
     `;
 

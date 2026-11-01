@@ -1,4 +1,4 @@
-import os, json, re
+import os, json, re, time
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -13,7 +13,7 @@ Sender: Simulated vendor
 
 Behavior rules based on strategy and round:
 - If strategy is 'partial_50': offer exactly 50% credit/refund (e.g., claiming handling costs, split difference, or standard store policy).
-- If strategy is 'deny': dispute the claim or claim no error occurred.
+- If strategy is 'deny': dispute the claim or claim no error occurred, offer Rs 0.
 - If strategy is 'accept': acknowledge the mistake politely and grant full credit note / refund for the exact claimed amount.
 - If strategy is 'realistic':
     - Round 1: push back or offer partial credit (e.g., 50%).
@@ -31,48 +31,48 @@ def _parse_json(text):
     text = re.sub(r"```(?:json)?", "", text).strip()
     return json.loads(text)
 
-def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="realistic"):
-    # Deterministic scripted behavior for scenarios (accept, partial_50, deny) or when SCRIPTED_VENDOR != "0"
-    if os.environ.get("SCRIPTED_VENDOR", "1") == "1" or strategy in ("accept", "partial_50", "deny"):
-        if strategy == "accept":
-            return {
-                "sender": "Simulated vendor",
-                "reply_text": f"Dear Customer,\n\nUpon checking our delivery records against the signed challan, we confirm the discrepancy and approve full credit note of Rs. {claimed_amount}.\n\nRegards,\nSimulated Vendor Accounts Team",
-                "offer_amount": float(claimed_amount),
-                "decision": "accept"
-            }
-        elif strategy == "partial_50":
+def _scripted_vendor_reply(claimed_amount, round_num, strategy):
+    if strategy == "accept":
+        return {
+            "sender": "Simulated vendor",
+            "reply_text": f"Dear Customer,\n\nUpon checking our delivery records against the signed challan, we confirm the discrepancy and approve full credit note of Rs. {claimed_amount}.\n\nRegards,\nSimulated Vendor Accounts Team",
+            "offer_amount": float(claimed_amount),
+            "decision": "accept"
+        }
+    elif strategy == "partial_50":
+        offer = round(float(claimed_amount) * 0.5, 2)
+        return {
+            "sender": "Simulated vendor",
+            "reply_text": f"Dear Customer,\n\nWe reviewed your dispute regarding invoice discrepancy. Due to warehouse processing fees and stock allocation, we can only offer a 50% credit note of Rs. {offer}. Please let us know if this is acceptable.\n\nRegards,\nSimulated Vendor Accounts Team",
+            "offer_amount": offer,
+            "decision": "partial"
+        }
+    elif strategy == "deny":
+        return {
+            "sender": "Simulated vendor",
+            "reply_text": f"Dear Customer,\n\nWe have reviewed our dispatch logs and confirm that all billed items were dispatched as per invoice. We cannot accept the overcharge claim of Rs. {claimed_amount} and must deny the dispute.\n\nRegards,\nSimulated Vendor Accounts Team",
+            "offer_amount": 0.0,
+            "decision": "deny"
+        }
+    else: # realistic
+        if round_num == 1:
             offer = round(float(claimed_amount) * 0.5, 2)
             return {
                 "sender": "Simulated vendor",
-                "reply_text": f"Dear Customer,\n\nWe reviewed your dispute regarding invoice discrepancy. Due to warehouse processing fees and stock allocation, we can only offer a 50% credit note of Rs. {offer}. Please let us know if this is acceptable.\n\nRegards,\nSimulated Vendor Accounts Team",
+                "reply_text": f"Dear Customer,\n\nWe reviewed your dispute. We can offer a partial 50% credit of Rs. {offer} to resolve this quickly.\n\nRegards,\nSimulated Vendor Accounts Team",
                 "offer_amount": offer,
                 "decision": "partial"
             }
-        elif strategy == "deny":
+        else:
             return {
                 "sender": "Simulated vendor",
-                "reply_text": f"Dear Customer,\n\nWe have reviewed our dispatch logs and confirm that all billed items were dispatched as per invoice. We cannot accept the overcharge claim of Rs. {claimed_amount} and must deny the dispute.\n\nRegards,\nSimulated Vendor Accounts Team",
-                "offer_amount": 0.0,
-                "decision": "deny"
+                "reply_text": f"Dear Customer,\n\nHaving verified your signed delivery challan and agreement, we concede the billing discrepancy and grant full credit of Rs. {claimed_amount}.\n\nRegards,\nSimulated Vendor Accounts Team",
+                "offer_amount": float(claimed_amount),
+                "decision": "accept"
             }
-        elif strategy == "realistic":
-            if round_num == 1:
-                offer = round(float(claimed_amount) * 0.5, 2)
-                return {
-                    "sender": "Simulated vendor",
-                    "reply_text": f"Dear Customer,\n\nWe reviewed your dispute. We can offer a partial 50% credit of Rs. {offer} to resolve this quickly.\n\nRegards,\nSimulated Vendor Accounts Team",
-                    "offer_amount": offer,
-                    "decision": "partial"
-                }
-            else:
-                return {
-                    "sender": "Simulated vendor",
-                    "reply_text": f"Dear Customer,\n\nHaving verified your signed delivery challan and agreement, we concede the billing discrepancy and grant full credit of Rs. {claimed_amount}.\n\nRegards,\nSimulated Vendor Accounts Team",
-                    "offer_amount": float(claimed_amount),
-                    "decision": "accept"
-                }
 
+def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="realistic", allow_fallback=True):
+    t0 = time.time()
     prompt = (
         f"Incoming dispute email from customer:\n\"\"\"\n{dispute_text}\n\"\"\"\n\n"
         f"Claimed overcharge amount: Rs. {claimed_amount}\n"
@@ -81,6 +81,7 @@ def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="r
         f"Draft the vendor's response and offer."
     )
 
+    # 1. LIVE API Call (Default: cache/scripted is OFF unless API fails)
     try:
         r = client.chat.completions.create(
             model=MODEL,
@@ -92,24 +93,21 @@ def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="r
         )
         data = _parse_json(r.choices[0].message.content)
         data["sender"] = "Simulated vendor"
+        latency = round(time.time() - t0, 2)
+        usage = getattr(r, "usage", None)
+        data["source"] = "live"
+        data["latency"] = latency
+        data["tokens"] = usage.total_tokens if usage else 0
         return data
-    except Exception as e:
-        # Fallback predictable vendor simulation if API is momentarily unresponsive
-        if strategy == "partial_50" or (strategy == "realistic" and round_num == 1):
-            offer = round(claimed_amount * 0.5, 2)
-            return {
-                "sender": "Simulated vendor",
-                "reply_text": f"Dear Customer,\n\nWe reviewed your dispute. Due to warehouse processing fees and stock allocation, we can only offer a 50% credit note of Rs. {offer}. Please let us know if this is acceptable.\n\nRegards,\nAccounts Team",
-                "offer_amount": offer,
-                "decision": "partial"
-            }
-        else:
-            return {
-                "sender": "Simulated vendor",
-                "reply_text": f"Dear Customer,\n\nUpon checking our delivery records against the signed challan, we confirm the discrepancy and approve full credit of Rs. {claimed_amount}.\n\nRegards,\nAccounts Team",
-                "offer_amount": claimed_amount,
-                "decision": "accept"
-            }
+    except Exception as live_err:
+        if allow_fallback:
+            fallback_res = _scripted_vendor_reply(claimed_amount, round_num, strategy)
+            fallback_res["source"] = "cache"
+            fallback_res["latency"] = round(time.time() - t0, 2)
+            fallback_res["tokens"] = 0
+            fallback_res["fallback_reason"] = str(live_err)
+            return fallback_res
+        raise live_err
 
 if __name__ == "__main__":
     reply = simulate_vendor_reply("You billed 12 bottles of Cooking Oil, but slip shows only 6 delivered. Overcharge: Rs. 780.", 780.0, strategy="partial_50")

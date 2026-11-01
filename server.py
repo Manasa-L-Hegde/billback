@@ -199,6 +199,15 @@ async def execute_case_workflow(case_id: str):
     demo_pacing = bool(c_row.get("demo_pacing", 1))
 
     state = {}
+    api_calls = []
+
+    def track_call(step_name, data):
+        src = data.get("_source") or data.get("source") or "live"
+        lat = data.get("_latency") or data.get("latency") or 0.0
+        tok = data.get("_tokens") or data.get("tokens") or 0
+        call_info = {"step": step_name, "source": src, "latency": lat, "tokens": tok}
+        api_calls.append(call_info)
+        return call_info
 
     async def emit(event_type: str, data: dict):
         if demo_pacing:
@@ -216,9 +225,18 @@ async def execute_case_workflow(case_id: str):
         # Step 1: Extract Invoice
         await emit("tool_start", {"step": 1, "tool": "extract_document", "doc_type": "invoice", "path": inv_path})
         inv_data = extract(inv_path, "invoice")
+        inv_meta = track_call("extract_invoice", inv_data)
         state["invoice"] = inv_data
         record_invoice_items(inv_data)
-        await emit("tool_result", {"step": 1, "tool": "extract_document", "doc_type": "invoice", "result": inv_data})
+        await emit("tool_result", {
+            "step": 1,
+            "tool": "extract_document",
+            "doc_type": "invoice",
+            "result": inv_data,
+            "source": inv_meta["source"],
+            "latency": inv_meta["latency"],
+            "tokens": inv_meta["tokens"]
+        })
 
         # Extraction Guard Check
         if inv_data.get("uncertain"):
@@ -230,7 +248,12 @@ async def execute_case_workflow(case_id: str):
                 "recovered": 0.0,
                 "rounds": 0,
                 "status": "Needs review: Document extraction uncertain. Review or re-upload clearer image.",
-                "reasons": reasons
+                "reasons": reasons,
+                "api_stats": {
+                    "calls": len(api_calls),
+                    "total_tokens": sum(c["tokens"] for c in api_calls),
+                    "calls_detail": api_calls
+                }
             }
             await emit("extraction_uncertain", {
                 "case_id": case_id,
@@ -246,15 +269,32 @@ async def execute_case_workflow(case_id: str):
         if slip_path:
             await emit("tool_start", {"step": 2, "tool": "extract_document", "doc_type": "slip", "path": slip_path})
             slip_data = extract(slip_path, "slip")
+            slip_meta = track_call("extract_slip", slip_data)
             state["slip"] = slip_data
-            await emit("tool_result", {"step": 2, "tool": "extract_document", "doc_type": "slip", "result": slip_data})
+            await emit("tool_result", {
+                "step": 2,
+                "tool": "extract_document",
+                "doc_type": "slip",
+                "result": slip_data,
+                "source": slip_meta["source"],
+                "latency": slip_meta["latency"],
+                "tokens": slip_meta["tokens"]
+            })
 
         # Step 3: Extract Agreement if present
         if agreed_path:
             await emit("tool_start", {"step": 3, "tool": "read_agreement", "path": agreed_path})
             agreed_data = extract_agreement(agreed_path)
+            agr_meta = track_call("read_agreement", agreed_data)
             state["agreement"] = agreed_data
-            await emit("tool_result", {"step": 3, "tool": "read_agreement", "result": agreed_data})
+            await emit("tool_result", {
+                "step": 3,
+                "tool": "read_agreement",
+                "result": agreed_data,
+                "source": agr_meta["source"],
+                "latency": agr_meta["latency"],
+                "tokens": agr_meta["tokens"]
+            })
 
         # Step 4: Run Audit
         await emit("tool_start", {"step": 4, "tool": "run_audit"})
@@ -268,7 +308,14 @@ async def execute_case_workflow(case_id: str):
         audit_res = audit(state["invoice"], state.get("slip"), agreed_rates)
         state["audit"] = audit_res
         total_claimed = audit_res.get("total_overcharge", 0.0)
-        await emit("tool_result", {"step": 4, "tool": "run_audit", "result": audit_res})
+        await emit("tool_result", {
+            "step": 4,
+            "tool": "run_audit",
+            "result": audit_res,
+            "source": "deterministic_python",
+            "latency": 0.0,
+            "tokens": 0
+        })
 
         # Update case record with initial audit findings
         vendor_name = state["invoice"].get("vendor") or "Unknown Vendor"
@@ -279,7 +326,12 @@ async def execute_case_workflow(case_id: str):
                 "claimed": 0.0,
                 "recovered": 0.0,
                 "rounds": 0,
-                "status": "Verified: Bill is correct with zero discrepancies."
+                "status": "Verified: Bill is correct with zero discrepancies.",
+                "api_stats": {
+                    "calls": len(api_calls),
+                    "total_tokens": sum(c["tokens"] for c in api_calls),
+                    "calls_detail": api_calls
+                }
             }
             await emit("outcome", outcome)
             _update_db_case(case_id, vendor_name, inv_no, "completed", 0.0, 0.0, audit_res, outcome, "")
@@ -336,12 +388,16 @@ async def execute_case_workflow(case_id: str):
         for r_num in range(1, 4):
             v_reply = simulate_vendor_reply(current_body, total_claimed, round_num=r_num, strategy=vendor_mode)
             offer = float(v_reply.get("offer_amount", 0.0))
+            v_meta = track_call(f"vendor_reply_r{r_num}", v_reply)
             
             v_entry = {
                 "round": r_num,
                 "sender": "Simulated vendor",
                 "reply": v_reply["reply_text"],
-                "offer": offer
+                "offer": offer,
+                "source": v_meta["source"],
+                "latency": v_meta["latency"],
+                "tokens": v_meta["tokens"]
             }
             transcript.append(v_entry)
             await emit("vendor_reply", v_entry)
@@ -353,7 +409,8 @@ async def execute_case_workflow(case_id: str):
                     "round": r_num,
                     "sender": "BillBack Agent",
                     "action": "ACCEPT",
-                    "message": f"Settlement accepted: Rs. {offer} meets recovery floor (Rs. {floor_amount}). Case closed."
+                    "message": f"Settlement accepted: Rs. {offer} meets recovery floor (Rs. {floor_amount}). Case closed.",
+                    "source": "deterministic_policy"
                 }
                 transcript.append(a_entry)
                 await emit("agent_reply", a_entry)
@@ -370,35 +427,46 @@ async def execute_case_workflow(case_id: str):
                         "sender": "BillBack Agent",
                         "action": "COUNTER",
                         "counter_offer": total_claimed,
-                        "message": counter_text
+                        "message": counter_text,
+                        "source": "deterministic_policy"
                     }
                     transcript.append(a_entry)
                     await emit("agent_reply", a_entry)
                     current_body = counter_text
                 else:
-                    final_status = f"Escalated to human: Vendor offered Rs. {offer} after round {r_num} (below Rs. {floor_amount} floor)"
+                    final_status = f"Vendor offer Rs. {offer}, awaiting your decision"
                     a_entry = {
                         "round": r_num,
                         "sender": "BillBack Agent",
                         "action": "ESCALATE",
-                        "message": f"Final offer Rs. {offer} rejected. Escalated to human owner for manual collection."
+                        "message": f"Final offer Rs. {offer} rejected. Escalated to owner, awaiting your decision.",
+                        "source": "deterministic_policy"
                     }
                     transcript.append(a_entry)
                     await emit("agent_reply", a_entry)
-                    recovered = offer
+                    recovered = 0.0 # Do not count unaccepted offer as recovered
                     break
 
+        is_escalated = "awaiting your decision" in final_status.lower() or "escalat" in final_status.lower()
+        actual_recovered = 0.0 if is_escalated else recovered
         outcome = {
             "claimed": total_claimed,
-            "recovered": recovered,
+            "recovered": actual_recovered,
+            "vendor_offer": offer if is_escalated else recovered,
             "floor": floor_amount,
-            "rounds": len([t for t in transcript if t["sender"] == "BillBack Agent"]),
+            "rounds": len([t for t in transcript if t.get("sender") == "BillBack Agent"]),
             "status": final_status,
-            "transcript": transcript
+            "escalated": is_escalated,
+            "transcript": transcript,
+            "api_stats": {
+                "calls": len(api_calls),
+                "total_tokens": sum(c["tokens"] for c in api_calls),
+                "calls_detail": api_calls
+            }
         }
         await emit("outcome", outcome)
-        db_status = "escalated" if "escalat" in final_status.lower() else "completed"
-        _update_db_case(case_id, vendor_name, inv_no, db_status, total_claimed, recovered, audit_res, outcome, email_body)
+        db_status = "escalated" if is_escalated else "completed"
+        _update_db_case(case_id, vendor_name, inv_no, db_status, total_claimed, actual_recovered, audit_res, outcome, email_body)
 
     except Exception as e:
         err_msg = str(e)

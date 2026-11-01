@@ -1,4 +1,4 @@
-import os, sys, json, base64, re, mimetypes
+import os, sys, json, base64, re, mimetypes, time
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -30,19 +30,13 @@ def _parse_json(text):
     text = re.sub(r"```(?:json)?", "", text).strip()
     return json.loads(text)
 
-def extract_agreement(path_or_text):
+def extract_agreement(path_or_text, allow_cache_fallback=True):
     path = Path(path_or_text) if isinstance(path_or_text, (str, Path)) else None
     is_file = path and path.exists() and path.is_file()
+    stem = path.stem if is_file else None
+    cache_path = Path("outputs") / f"{stem}.json" if stem else None
+    t0 = time.time()
 
-    if is_file:
-        stem = path.stem
-        cache_path = Path("outputs") / f"{stem}.json"
-        if cache_path.exists():
-            try:
-                return json.loads(cache_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-    
     if is_file and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
         content = [
             {"type": "text", "text": SYSTEM_PROMPT},
@@ -54,17 +48,42 @@ def extract_agreement(path_or_text):
             {"type": "text", "text": f"{SYSTEM_PROMPT}\n\nTranscript:\n{text_content}"}
         ]
 
-    for attempt in range(2):
+    # 1. LIVE API Call (Default: cache is OFF unless API fails)
+    try:
         r = client.chat.completions.create(
             model=MODEL,
             temperature=0,
             messages=[{"role": "user", "content": content}]
         )
-        try:
-            return _parse_json(r.choices[0].message.content)
-        except json.JSONDecodeError:
-            if attempt == 1:
-                raise
+        data = _parse_json(r.choices[0].message.content)
+        latency = round(time.time() - t0, 2)
+        usage = getattr(r, "usage", None)
+        total_toks = usage.total_tokens if usage else 0
+
+        data["_source"] = "live"
+        data["_latency"] = latency
+        data["_tokens"] = total_toks
+
+        if cache_path:
+            try:
+                Path("outputs").mkdir(exist_ok=True)
+                cache_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass
+        return data
+    except Exception as live_err:
+        # 2. CACHE FALLBACK (Only if API failed / unreachable)
+        if allow_cache_fallback and cache_path and cache_path.exists():
+            try:
+                cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+                cached_data["_source"] = "cache"
+                cached_data["_latency"] = round(time.time() - t0, 2)
+                cached_data["_tokens"] = 0
+                cached_data["_fallback_reason"] = str(live_err)
+                return cached_data
+            except Exception:
+                pass
+        raise live_err
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

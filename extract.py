@@ -1,4 +1,4 @@
-import os, sys, json, base64, re, mimetypes
+import os, sys, json, base64, re, mimetypes, time
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -101,28 +101,19 @@ def check_extraction_uncertainty(bill, doc_type="invoice"):
     is_uncertain = len(reasons) > 0
     return is_uncertain, reasons
 
-def extract(path, doc_type="invoice"):
+def extract(path, doc_type="invoice", allow_cache_fallback=True):
     stem = Path(path).stem
     cache_path = Path("outputs") / f"{stem}.json"
-    if cache_path.exists():
-        try:
-            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
-            if doc_type == "invoice":
-                is_uncertain, reasons = check_extraction_uncertainty(cached_data, doc_type=doc_type)
-                cached_data["uncertain"] = is_uncertain
-                cached_data["uncertain_reasons"] = reasons
-            return cached_data
-        except Exception:
-            pass
-
     prompt_key = doc_type
     last_data = None
+    t0 = time.time()
 
-    for attempt in range(2):
-        if attempt == 1 and doc_type == "invoice":
-            prompt_key = "invoice_strict"
+    # 1. LIVE API Call (Default: cache is OFF unless API fails)
+    try:
+        for attempt in range(2):
+            if attempt == 1 and doc_type == "invoice":
+                prompt_key = "invoice_strict"
 
-        try:
             r = client.chat.completions.create(
                 model=MODEL,
                 temperature=0,
@@ -133,22 +124,52 @@ def extract(path, doc_type="invoice"):
             )
             data = _parse_json(r.choices[0].message.content)
             last_data = data
-        except Exception:
-            if attempt == 1:
-                raise
-            continue
+            latency = round(time.time() - t0, 2)
+            usage = getattr(r, "usage", None)
+            total_toks = usage.total_tokens if usage else 0
 
-        if doc_type == "invoice":
-            is_uncertain, reasons = check_extraction_uncertainty(data, doc_type=doc_type)
-            data["uncertain"] = is_uncertain
-            data["uncertain_reasons"] = reasons
-            if not is_uncertain:
+            data["_source"] = "live"
+            data["_latency"] = latency
+            data["_tokens"] = total_toks
+
+            if doc_type == "invoice":
+                is_uncertain, reasons = check_extraction_uncertainty(data, doc_type=doc_type)
+                data["uncertain"] = is_uncertain
+                data["uncertain_reasons"] = reasons
+                if not is_uncertain:
+                    try:
+                        Path("outputs").mkdir(exist_ok=True)
+                        cache_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                    except Exception:
+                        pass
+                    return data
+            else:
+                try:
+                    Path("outputs").mkdir(exist_ok=True)
+                    cache_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                except Exception:
+                    pass
                 return data
-            # If uncertain on first attempt, loop will retry once with invoice_strict
-        else:
-            return data
 
-    return last_data
+        if last_data:
+            return last_data
+    except Exception as live_err:
+        # 2. CACHE FALLBACK (Only if API failed / unreachable)
+        if allow_cache_fallback and cache_path.exists():
+            try:
+                cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+                if doc_type == "invoice":
+                    is_uncertain, reasons = check_extraction_uncertainty(cached_data, doc_type=doc_type)
+                    cached_data["uncertain"] = is_uncertain
+                    cached_data["uncertain_reasons"] = reasons
+                cached_data["_source"] = "cache"
+                cached_data["_latency"] = round(time.time() - t0, 2)
+                cached_data["_tokens"] = 0
+                cached_data["_fallback_reason"] = str(live_err)
+                return cached_data
+            except Exception:
+                pass
+        raise live_err
 
 def check_math(bill):
     """Plain Python checks, no AI. Returns a list of problems found in the bill itself."""

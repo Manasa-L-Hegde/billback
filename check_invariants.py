@@ -45,6 +45,7 @@ def run_invariant_checks():
     violations_b = []
     violations_c = []
     violations_d = []
+    violations_e = []
 
     now_utc = datetime.now(timezone.utc)
 
@@ -134,6 +135,16 @@ def run_invariant_checks():
                 # Mark as abandoned
                 cur.execute("UPDATE cases SET status = 'abandoned' WHERE id = ?", (case_id,))
 
+        # Invariant (e): Escalated cases must have recovered = 0.0 (unaccepted offers not counted as recovered)
+        if is_escalated:
+            if recovered > 0.0:
+                violations_e.append({
+                    "case_id": case_id,
+                    "recovered": recovered,
+                    "status": status,
+                    "reason": f"Case is escalated but has recovered = Rs. {recovered:.2f}. Must be 0.0 until accepted by human decision."
+                })
+
     conn.commit()
     conn.close()
 
@@ -171,8 +182,16 @@ def run_invariant_checks():
     else:
         print("  PASS: No stale cases stuck in pending/running states.")
 
+    print("\nINVARIANT (e): Escalated cases count only accepted settlements as recovered")
+    if violations_e:
+        print(f"FAILED: {len(violations_e)} violation(s) found:")
+        for v in violations_e:
+            print(f"  [!] Case {v['case_id']}: {v['reason']}")
+    else:
+        print("  PASS: All escalated cases show recovered = 0.0 (awaiting human decision).")
+
     print("-" * 80)
-    total_violations = len(violations_a) + len(violations_b) + len(violations_c)
+    total_violations = len(violations_a) + len(violations_b) + len(violations_c) + len(violations_e)
     if total_violations > 0 or violations_d:
         print(f"RESULT: {total_violations} invariant violation(s) and {len(violations_d)} abandoned case(s) found.")
     else:

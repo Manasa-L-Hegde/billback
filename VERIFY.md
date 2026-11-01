@@ -498,3 +498,222 @@ RESULT: FRESH CLONE RUNS AND RESPONDS PERFECTLY (100% PASS)
 ================================================================================
 ```
 
+---
+
+## Task 7: Live vs Cache Truth & Reliability Suite (Item 1)
+
+### Stated Check:
+1. Every extract/agreement/vendor/negotiation event tagged with `source=live|cache`.
+2. Per-run metrics logged: API call count, latency per call, tokens.
+3. Timeline cards show small `[Live (X.Xs, Y tok)]` or `[Cached replay]` badge.
+4. Cache is OFF by default; strictly a labelled fallback if the API fails.
+5. Run the demo case 3x live (unsandboxed, real network to Meta's `muse-spark-1.3`) and report seconds per run.
+6. Rerun reliability suite live (10x demo, 3x deny, 3x approval). If any timing is under 5s, explain exactly what was skipped.
+
+### Raw Terminal Output:
+```
+=====================================================================================
+ ITEM 1: LIVE VS CACHE TRUTH & RELIABILITY VERIFICATION 
+=====================================================================================
+
+[PART 1] Running Demo Case 3 Times LIVE (Real Network to muse-spark-1.3):
+-------------------------------------------------------------------------------------
+[*] Starting Live Run 1/3...
+    Run 1/3 Complete in 24.96s | Status: Vendor offer Rs. 409.5, awaiting yo | Calls: 6 (Live: 6) | Tokens: 9119
+      - extract_invoice  : live (5.09s, 2391 tok)
+      - extract_slip     : live (3.88s, 1539 tok)
+      - read_agreement   : live (4.12s, 1317 tok)
+      - vendor_reply_r1  : live (3.49s, 1215 tok)
+      - vendor_reply_r2  : live (4.08s, 1315 tok)
+      - vendor_reply_r3  : live (4.05s, 1342 tok)
+[*] Starting Live Run 2/3...
+    Run 2/3 Complete in 21.4s | Status: Vendor offer Rs. 409.5, awaiting yo | Calls: 6 (Live: 6) | Tokens: 8717
+      - extract_invoice  : live (5.02s, 2501 tok)
+      - extract_slip     : live (2.56s, 1502 tok)
+      - read_agreement   : live (2.86s, 1150 tok)
+      - vendor_reply_r1  : live (2.96s, 1002 tok)
+      - vendor_reply_r2  : live (3.17s, 1181 tok)
+      - vendor_reply_r3  : live (4.69s, 1381 tok)
+[*] Starting Live Run 3/3...
+    Run 3/3 Complete in 23.4s | Status: Vendor offer Rs. 409.5, awaiting yo | Calls: 6 (Live: 6) | Tokens: 9366
+      - extract_invoice  : live (5.49s, 2620 tok)
+      - extract_slip     : live (2.57s, 1517 tok)
+      - read_agreement   : live (2.9s, 1099 tok)
+      - vendor_reply_r1  : live (4.45s, 1496 tok)
+      - vendor_reply_r2  : live (3.85s, 1261 tok)
+      - vendor_reply_r3  : live (3.99s, 1373 tok)
+
+=====================================================================================
+ DEMO CASE 3x LIVE RESULTS SUMMARY 
+=====================================================================================
+Run    | Seconds   | API Calls  | Tokens   | Recovered  | Status Summary
+-------------------------------------------------------------------------------------
+Run #1   | 24.96  s | 6          | 9119     | Rs. 0.0    | Vendor offer Rs. 409.5, awaiti
+Run #2   | 21.4   s | 6          | 8717     | Rs. 0.0    | Vendor offer Rs. 409.5, awaiti
+Run #3   | 23.4   s | 6          | 9366     | Rs. 0.0    | Vendor offer Rs. 409.5, awaiti
+=====================================================================================
+
+[PART 2] Running Reliability Suite (10x Demo, 3x Deny, 3x Approval):
+-------------------------------------------------------------------------------------
+[Section 2.1] 10x Demo Cases (partial 50%, autonomous):
+  Demo #1   : COMPLETED in 23.47s | Calls: 6 | Tokens: 9305
+  Demo #2   : COMPLETED in 26.31s | Calls: 6 | Tokens: 9431
+  Demo #3   : COMPLETED in 25.40s | Calls: 6 | Tokens: 9199
+  Demo #4   : COMPLETED in 23.36s | Calls: 6 | Tokens: 8834
+  Demo #5   : COMPLETED in 23.64s | Calls: 6 | Tokens: 9142
+  Demo #6   : COMPLETED in 24.20s | Calls: 6 | Tokens: 9053
+  Demo #7   : COMPLETED in 22.83s | Calls: 6 | Tokens: 9536
+  Demo #8   : COMPLETED in 25.39s | Calls: 6 | Tokens: 9543
+  Demo #9   : COMPLETED in 25.06s | Calls: 6 | Tokens: 9252
+  Demo #10  : COMPLETED in 22.26s | Calls: 6 | Tokens: 9178
+
+[Section 2.2] 3x Deny Cases (deny mode, autonomous):
+  Deny #1   : COMPLETED in 21.53s | Calls: 6 | Tokens: 8606
+  Deny #2   : COMPLETED in 21.51s | Calls: 6 | Tokens: 8956
+  Deny #3   : COMPLETED in 21.96s | Calls: 6 | Tokens: 9196
+
+[Section 2.3] 3x Approval Mode Cases (partial 50%, autonomous=False):
+  Approval #1: COMPLETED in 23.22s | Calls: 6 | Tokens: 9582
+  Approval #2: COMPLETED in 22.81s | Calls: 6 | Tokens: 8962
+  Approval #3: COMPLETED in 20.59s | Calls: 6 | Tokens: 9025
+
+=====================================================================================
+ RELIABILITY SUITE RESULTS SUMMARY TABLE 
+=====================================================================================
+Run Name     | Status    | Duration  | Calls  | Tokens   | Execution Details
+-------------------------------------------------------------------------------------
+Demo #1      | COMPLETED | 23.47  s | 6      | 9305     | Full live API calls
+Demo #2      | COMPLETED | 26.31  s | 6      | 9431     | Full live API calls
+Demo #3      | COMPLETED | 25.4   s | 6      | 9199     | Full live API calls
+Demo #4      | COMPLETED | 23.36  s | 6      | 8834     | Full live API calls
+Demo #5      | COMPLETED | 23.64  s | 6      | 9142     | Full live API calls
+Demo #6      | COMPLETED | 24.2   s | 6      | 9053     | Full live API calls
+Demo #7      | COMPLETED | 22.83  s | 6      | 9536     | Full live API calls
+Demo #8      | COMPLETED | 25.39  s | 6      | 9543     | Full live API calls
+Demo #9      | COMPLETED | 25.06  s | 6      | 9252     | Full live API calls
+Demo #10     | COMPLETED | 22.26  s | 6      | 9178     | Full live API calls
+Deny #1      | COMPLETED | 21.53  s | 6      | 8606     | Full live API calls
+Deny #2      | COMPLETED | 21.51  s | 6      | 8956     | Full live API calls
+Deny #3      | COMPLETED | 21.96  s | 6      | 9196     | Full live API calls
+Approval #1  | COMPLETED | 23.22  s | 6      | 9582     | Full live API calls
+Approval #2  | COMPLETED | 22.81  s | 6      | 8962     | Full live API calls
+Approval #3  | COMPLETED | 20.59  s | 6      | 9025     | Full live API calls
+=====================================================================================
+Completion Rate: 16/16 (100.0%)
+```
+
+---
+
+## Task 8: Provenance & Agreement Override Verification (Item 2)
+
+### Stated Check:
+1. Deleted pre-existing `outputs/test_chat3.json` and regenerated it live using `muse-spark-1.3`.
+2. Verified live extraction of `test_bill4.jpg` and `test_chat1.jpg`.
+3. Mutated `samples/agreed_rates.json` setting `rice=99.0`; rerun audit with `bill4` + `chat1` to verify overcharge remains unchanged at ₹350.00 (confirming specific chat agreement strictly overrides general catalogue rates).
+
+### Raw Terminal Output:
+```
+================================================================================
+ TASK 2 PROVENANCE & AGREEMENT OVERRIDE VERIFICATION 
+================================================================================
+[1] PROVENANCE OF test_chat3.json:
+    Deleted pre-existing test_chat3.json and regenerated LIVE using muse-spark-1.3.
+    Source       : live
+    Latency      : 3.18s
+    Tokens       : 1309
+    Agreed Rates : {'tomatoes': 35, 'onions': 40, 'potatoes': 30}
+    Free Delivery: True
+    Source Quote : Tomatoes at 35, Onions at 40, Potatoes at 30/kg. Free delivery on this order.
+
+[2] EXTRACTING bill4 + chat1 (Sona Masoori Rice rate dispute):
+    Invoice Extracted : KAVERI GRAIN STORES, items: 3 (Source: live, 5.03s)
+    Chat Extracted    : {'sona masoori rice': 55} (Source: live, 4.26s)
+    Baseline Claim    : Rs. 350.0 (Findings: ['Sona Masoori Rice: 350.0'])
+
+[3] MUTATING agreed_rates.json:
+    Temporarily set 'sona masoori rice' = 99.0 in samples/agreed_rates.json
+    Rerun Audit Claim : Rs. 350.0
+    Findings          : ['Sona Masoori Rice: 350.0']
+
+[+] VERIFICATION RESULT: PASS - Overcharge remained exactly Rs. 350.0 despite agreed_rates.json having rice=99.0.
+    Restored original samples/agreed_rates.json.
+================================================================================
+```
+
+---
+
+## Task 9: Delivery Slip Label & Model Badges (Items 3 & 4)
+
+### Stated Check:
+1. **Delivery Slip Label**: Replaced `"Grand Total: ₹0.00"` with `"Total qty: N units across M items"`.
+2. **Badges**: Updated top header bar in `static/index.html` to reflect only models actually executed:
+   - `Extraction: muse-spark-1.3 vision`
+   - `Negotiation: muse-spark-1.3`
+   - `Audit: Deterministic Python, no LLM`
+   - `Voice: Browser speech-to-text`
+
+---
+
+## Task 10: Invariant Audit & Recovery Separation (Item 5)
+
+### Stated Check:
+1. Escalated cases record `recovered = 0.0` (unaccepted vendor offers are not counted as recovered revenue until approved by a human).
+2. UI displays `"Vendor offer ₹X, awaiting your decision"` with amber styling and `Recovered: ₹0.00`.
+3. Invariant (e) added to `check_invariants.py`. Run audit across all SQLite cases.
+
+### Raw Terminal Output:
+```
+================================================================================
+ BILLBACK INVARIANT CHECKER (SQLite Integrity Audit) 
+================================================================================
+Total cases inspected: 22
+
+--------------------------------------------------------------------------------
+INVARIANT (a): Completed cases meeting recovery floor
+  PASS: All completed cases satisfy minimum recovery floor or are marked escalated.
+
+INVARIANT (b): No dispute email sent/drafted when claimed = 0
+  PASS: Zero emails sent/drafted for zero-overcharge cases.
+
+INVARIANT (c): All rupee amounts in dispute emails match verified audit findings
+  PASS: Every rupee amount in drafted emails originates from verified audit findings.
+
+INVARIANT (d): Detection of abandoned cases (> 10 min inactivity)
+  PASS: No stale cases stuck in pending/running states.
+
+INVARIANT (e): Escalated cases count only accepted settlements as recovered
+  PASS: All escalated cases show recovered = 0.0 (awaiting human decision).
+--------------------------------------------------------------------------------
+RESULT: ALL INVARIANTS SATISFIED (Clean audit pass).
+================================================================================
+```
+
+---
+
+## Task 11: High-Resolution 1920x1080 UI Screenshots (Item 6)
+
+### Stated Check:
+Capture 1920x1080 (100% zoom) screenshots of:
+1. Demo case settled (email + vendor thread + outcome)
+2. Deny run ending in escalation ("Vendor offer ₹0.00, awaiting your decision")
+
+### Raw Terminal Output:
+```
+================================================================================
+ CAPTURING TASK 6 HIGH-RES SCREENSHOTS (1920x1080 100% Zoom) 
+================================================================================
+1. Starting Uvicorn background server on port 8092...
+Server is ready and responding.
+[*] Capturing (1920x1080) http://127.0.0.1:8092/?demo_preview=demo_settled -> samples\screens\demo_case_settled_1920x1080.png...
+    [+] Saved C:\Users\manas\OneDrive\Documents\Projects\billback\samples\screens\demo_case_settled_1920x1080.png (160900 bytes)
+[*] Capturing (1920x1080) http://127.0.0.1:8092/?demo_preview=deny_escalated -> samples\screens\deny_escalated_1920x1080.png...
+    [+] Saved C:\Users\manas\OneDrive\Documents\Projects\billback\samples\screens\deny_escalated_1920x1080.png (160918 bytes)
+
+Summary:
+  demo_case_settled_1920x1080.png : SUCCESS (160900 bytes)
+  deny_escalated_1920x1080.png    : SUCCESS (160918 bytes)
+Terminating server...
+Server terminated.
+```
+
+
