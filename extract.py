@@ -102,6 +102,19 @@ def check_extraction_uncertainty(bill, doc_type="invoice"):
     return is_uncertain, reasons
 
 def extract(path, doc_type="invoice"):
+    stem = Path(path).stem
+    cache_path = Path("outputs") / f"{stem}.json"
+    if cache_path.exists():
+        try:
+            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+            if doc_type == "invoice":
+                is_uncertain, reasons = check_extraction_uncertainty(cached_data, doc_type=doc_type)
+                cached_data["uncertain"] = is_uncertain
+                cached_data["uncertain_reasons"] = reasons
+            return cached_data
+        except Exception:
+            pass
+
     prompt_key = doc_type
     last_data = None
 

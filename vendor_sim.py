@@ -32,6 +32,47 @@ def _parse_json(text):
     return json.loads(text)
 
 def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="realistic"):
+    # Deterministic scripted behavior for scenarios (accept, partial_50, deny) or when SCRIPTED_VENDOR != "0"
+    if os.environ.get("SCRIPTED_VENDOR", "1") == "1" or strategy in ("accept", "partial_50", "deny"):
+        if strategy == "accept":
+            return {
+                "sender": "Simulated vendor",
+                "reply_text": f"Dear Customer,\n\nUpon checking our delivery records against the signed challan, we confirm the discrepancy and approve full credit note of Rs. {claimed_amount}.\n\nRegards,\nSimulated Vendor Accounts Team",
+                "offer_amount": float(claimed_amount),
+                "decision": "accept"
+            }
+        elif strategy == "partial_50":
+            offer = round(float(claimed_amount) * 0.5, 2)
+            return {
+                "sender": "Simulated vendor",
+                "reply_text": f"Dear Customer,\n\nWe reviewed your dispute regarding invoice discrepancy. Due to warehouse processing fees and stock allocation, we can only offer a 50% credit note of Rs. {offer}. Please let us know if this is acceptable.\n\nRegards,\nSimulated Vendor Accounts Team",
+                "offer_amount": offer,
+                "decision": "partial"
+            }
+        elif strategy == "deny":
+            return {
+                "sender": "Simulated vendor",
+                "reply_text": f"Dear Customer,\n\nWe have reviewed our dispatch logs and confirm that all billed items were dispatched as per invoice. We cannot accept the overcharge claim of Rs. {claimed_amount} and must deny the dispute.\n\nRegards,\nSimulated Vendor Accounts Team",
+                "offer_amount": 0.0,
+                "decision": "deny"
+            }
+        elif strategy == "realistic":
+            if round_num == 1:
+                offer = round(float(claimed_amount) * 0.5, 2)
+                return {
+                    "sender": "Simulated vendor",
+                    "reply_text": f"Dear Customer,\n\nWe reviewed your dispute. We can offer a partial 50% credit of Rs. {offer} to resolve this quickly.\n\nRegards,\nSimulated Vendor Accounts Team",
+                    "offer_amount": offer,
+                    "decision": "partial"
+                }
+            else:
+                return {
+                    "sender": "Simulated vendor",
+                    "reply_text": f"Dear Customer,\n\nHaving verified your signed delivery challan and agreement, we concede the billing discrepancy and grant full credit of Rs. {claimed_amount}.\n\nRegards,\nSimulated Vendor Accounts Team",
+                    "offer_amount": float(claimed_amount),
+                    "decision": "accept"
+                }
+
     prompt = (
         f"Incoming dispute email from customer:\n\"\"\"\n{dispute_text}\n\"\"\"\n\n"
         f"Claimed overcharge amount: Rs. {claimed_amount}\n"

@@ -27,9 +27,15 @@
     }
   </script>
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: 'Inter', sans-serif; font-size: 15.5px; }
     .card-shadow { box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05); }
     .card-elevated { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05); }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+    details > summary::-webkit-details-marker { display: none !important; }
+    details > summary { list-style: none !important; }
     [x-cloak] { display: none !important; }
   </style>
 </head>
@@ -118,8 +124,8 @@
           <div class="bg-white rounded-xl border border-slate-200 p-5 card-shadow">
             <div class="flex items-center justify-between mb-4">
               <h2 class="text-base font-bold text-slate-900">1. Document Inputs</h2>
-              <button id="demo-btn" type="button" class="text-xs font-semibold px-2.5 py-1 bg-brand-50 hover:bg-brand-100 text-brand-700 rounded-lg border border-brand-200 transition-colors flex items-center space-x-1">
-                <svg class="w-3.5 h-3.5 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              <button id="demo-btn" type="button" class="text-xs sm:text-sm font-bold px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-lg shadow-sm hover:shadow transition-all flex items-center space-x-1.5 ring-2 ring-brand-200 ring-offset-1">
+                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 <span>Try Demo Case</span>
               </button>
             </div>
@@ -227,6 +233,18 @@
                   </div>
                   <label class="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" id="autonomous-toggle" class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
+                  </label>
+                </div>
+
+                <!-- DEMO PACING TOGGLE (DEFAULT ON) -->
+                <div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div>
+                    <span class="text-xs font-semibold text-slate-800 block">Demo Pacing</span>
+                    <span class="text-[10px] text-slate-500 block">~400ms delay between cards for readable video</span>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="demo-pacing-toggle" checked class="sr-only peer">
                     <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-brand-600"></div>
                   </label>
                 </div>

@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const minAcceptSlider = document.getElementById('min-accept');
   const sliderVal = document.getElementById('slider-val');
   const autonomousToggle = document.getElementById('autonomous-toggle');
+  const demoPacingToggle = document.getElementById('demo-pacing-toggle');
   const vendorEmailInput = document.getElementById('vendor-email');
   const vendorModeSelect = document.getElementById('vendor-mode');
 
@@ -409,6 +410,23 @@ document.addEventListener('DOMContentLoaded', () => {
       rates: 'Rate check skipped (no agreement)'
     });
     updateStatusPill('Settled');
+  } else if (urlParams.get('demo_preview') === 'error_timeout') {
+    timelineEmpty.classList.add('hidden');
+    const errorCard = document.createElement('div');
+    errorCard.className = 'p-3.5 rounded-xl border border-red-200 bg-red-50 text-xs text-red-800 space-y-2 animate-fade-in shadow-sm';
+    errorCard.innerHTML = `
+      <div class="flex items-center space-x-2 font-bold text-red-900 text-sm">
+        <svg class="w-4 h-4 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span>Audit Interrupted (API Timeout)</span>
+      </div>
+      <p class="text-xs text-red-700">Meta AI API call timed out after 60s (simulated FAULT_INJECT=timeout). Please click Retry Audit.</p>
+      <button type="button" onclick="window.location.reload()" class="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-xs transition-colors flex items-center space-x-1.5 shadow-sm">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        <span>Retry Audit</span>
+      </button>
+    `;
+    timeline.appendChild(errorCard);
+    updateStatusPill('Error');
   }
 
   // Reset workspace for new case
@@ -440,24 +458,28 @@ document.addEventListener('DOMContentLoaded', () => {
     liveDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
   };
 
-  // One-Click Demo Case Button (Bill 5 + Slip 5 with duplicate oil)
+  // One-Click Demo Case Button (Bill 5 + Slip 5 + Chat with duplicate oil)
   demoBtn.addEventListener('click', async () => {
     if (isRunning) return;
+    vendorModeSelect.value = 'partial_50';
+    minAcceptSlider.value = 80;
+    sliderVal.textContent = '80%';
+    autonomousToggle.checked = true;
+
     resetWorkspace();
     setRunning(true);
 
     try {
-      const vendorMode = vendorModeSelect.value;
-      const minAccept = minAcceptSlider.value;
-      const autonomous = autonomousToggle.checked;
+      const demoPacing = demoPacingToggle ? demoPacingToggle.checked : true;
 
       const res = await fetch('/api/cases/demo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vendor_mode: vendorMode,
-          min_accept_percent: Number(minAccept),
-          autonomous: autonomous
+          vendor_mode: 'partial_50',
+          min_accept_percent: 80.0,
+          autonomous: true,
+          demo_pacing: demoPacing
         })
       });
 
@@ -503,6 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('vendor_mode', vendorModeSelect.value);
       formData.append('min_accept_percent', minAcceptSlider.value);
       formData.append('autonomous', autonomousToggle.checked ? 'true' : 'false');
+      formData.append('demo_pacing', demoPacingToggle && demoPacingToggle.checked ? 'true' : 'false');
 
       const res = await fetch('/api/cases', {
         method: 'POST',
@@ -704,12 +727,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (summaryEl) summaryEl.textContent = summaryText;
 
-    // Expandable Raw JSON
+    // Expandable Raw JSON (Task 1: wrap text, max-height with styled scrollbar, no native arrows)
     const details = document.createElement('details');
-    details.className = 'text-[11px] text-slate-500 pt-1 border-t border-slate-100';
+    details.className = 'text-xs text-slate-500 pt-2 border-t border-slate-100 group';
     details.innerHTML = `
-      <summary class="cursor-pointer hover:text-brand-600 font-medium select-none">View raw JSON payload</summary>
-      <pre class="mt-1 p-2 rounded bg-slate-900 text-slate-200 font-mono text-[10px] overflow-x-auto max-h-40">${JSON.stringify(data.result, null, 2)}</pre>
+      <summary class="cursor-pointer hover:text-brand-600 font-semibold select-none flex items-center space-x-1.5 list-none [&::-webkit-details-marker]:hidden py-0.5">
+        <svg class="w-3.5 h-3.5 text-slate-400 group-open:rotate-90 transition-transform flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span>View raw JSON payload</span>
+      </summary>
+      <pre class="mt-2 p-3 rounded-lg bg-slate-900 text-slate-200 font-mono text-[11px] leading-snug whitespace-pre-wrap break-all max-h-52 overflow-y-auto custom-scrollbar">${JSON.stringify(data.result, null, 2)}</pre>
     `;
     card.appendChild(details);
   };

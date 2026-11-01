@@ -1,6 +1,6 @@
 # BillBack
 
-> Small shops and families pay bills where the real agreement lives in a voice note or chat, the proof of delivery is a paper slip, and the bill is a photo. There's no ERP and no contract system. Overcharges slip through (wrong math, fees nobody agreed to, items billed twice or never delivered) because checking means cross-referencing three messy sources by hand, and disputing means writing and chasing emails. BillBack is an agent that reads all three, proves each overcharge with arithmetic, and carries the dispute through to recovery.
+> Small shops and families pay bills where the real agreement lives in a voice note or chat, the proof of delivery is a paper slip, and the bill is a photo. There is no ERP and no contract management system. Overcharges slip through—arithmetic mistakes, surprise charges nobody agreed to, items billed twice or never delivered—because auditing requires cross-referencing three messy, fragmented sources by hand, and disputing requires drafting, calculating, and chasing emails. BillBack is an autonomous agent that reads all three sources, mathematically proves each overcharge, drafts an evidence-backed dispute, and carries multi-round negotiation through to recovery.
 
 ---
 
@@ -9,29 +9,31 @@
 ```mermaid
 flowchart TD
     subgraph Inputs ["1. Multimodal Inputs"]
-        A1[Invoice / Bill Photo]
-        A2[Delivery Slip / Challan Photo]
-        A3[Agreement: Chat Screenshot / Voice Transcript]
+        A1["Invoice / Bill Photo (test_bill5.jpg)"]
+        A2["Delivery Slip Photo (test_slip5.jpg)"]
+        A3["Agreement: Chat Screenshot (test_chat3.jpg) / Voice"]
     end
 
     subgraph Extraction ["2. Multimodal Extraction (Meta muse-spark-1.3)"]
         B1["extract_document(invoice)"]
         B2["extract_document(slip)"]
         B3["read_agreement(image/text)"]
+        BG{"Extraction Guard: Certain?"}
     end
 
     subgraph Audit ["3. Zero-Hallucination Audit Engine"]
-        C1["Line Math ($qty \times rate = amount$)"]
-        C2["Subtotal & Tax Reconciliation ($5\%$ tax calculation)"]
+        C1["Line Math (qty * rate = amount)"]
+        C2["Subtotal & Tax Reconciliation (5% tax calculation)"]
         C3["Delivered vs Billed Quantity Cross-Check"]
         C4["Contract Rate Token-Containment Match"]
         C5["Delivery Charge Waiver Check"]
+        CH["Honest Check Report: OK / Skipped / Failed"]
     end
 
     subgraph Resolution ["4. Dispute & Negotiation Loop"]
         D1["Draft Itemized Dispute Email"]
         D2{"Autonomous or Human Approval?"}
-        D3["Gmail SMTP Dispatch"]
+        D3["Gmail SMTP Dispatch / Dry-Run Outbox"]
         D4["Simulated Vendor 3-Round Negotiation"]
         D5["Recovery Floor Enforcement (80%) or Escalate"]
     end
@@ -40,11 +42,14 @@ flowchart TD
     A2 --> B2
     A3 --> B3
 
-    B1 --> Audit
+    B1 --> BG
+    BG -- "Uncertain (e.g. unpriced label)" --> NR["needs_review (Amber Card, Stop)"]
+    BG -- "Certain" --> Audit
     B2 --> Audit
     B3 --> Audit
 
-    Audit --> D1
+    Audit --> CH
+    CH --> D1
     D1 --> D2
     D2 -- "Approve Click" --> D3
     D2 -- "Autonomous: True" --> D3
@@ -75,6 +80,10 @@ flowchart TD
 
 3. **Configure environment variables**:
    Create a `.env` file from `.env.example`:
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env`:
    ```env
    MODEL_API_KEY=your_meta_model_api_key_here
    # Optional: Real Gmail sending (defaults to DRY_RUN=1 audit outbox logging)
@@ -95,31 +104,46 @@ flowchart TD
 ## How to Try the Demo Case (One-Click)
 
 1. Open `http://127.0.0.1:8000`.
-2. Click the **"Try Demo Case"** button on the top right of the inputs card.
-   - Automatically loads `test_bill5.jpg` and `test_slip5.jpg` (duplicate billing case).
-   - Audits the bill live via Server-Sent Events (SSE).
-   - Flags ₹780 duplicate Cooking Oil + ₹39 tax on overcharge = **₹819.00 total claim**.
-   - Initiates negotiation with the simulated vendor, counters an interim 50% offer, and settles at 100% recovery.
+2. Click the prominent **"Try Demo Case"** button in the inputs section.
+   - Automatically loads `test_bill5.jpg` (City Wholesale Mart invoice), `test_slip5.jpg` (delivery challan), and `test_chat3.jpg` (rate agreement).
+   - Sets vendor behavior to **Partial 50%**, recovery floor to **80%**, and **Autonomous Mode** to ON.
+   - Features **Demo Pacing (~400ms)** enabled by default so each stage is clearly observable during video recording and live presentation.
+   - Live timeline streams via Server-Sent Events (SSE):
+     - **Audit Findings**: Cooking Oil 1L duplicate billed (12 billed vs 6 delivered = Rs. 780.00) + 5% tax on overcharge (Rs. 39.00) = **Rs. 819.00 Total Claimed**.
+     - **Evidence Chips**: Arithmetic `[OK]`, Delivery `[FAILED]`, Agreement `[OK]`.
+     - **Dispute Email**: Formatted with line-item arithmetic proof sent to vendor.
+     - **Multi-Round Negotiation**: Simulated vendor offers Rs. 409.50 (50%); agent counters with challan proof; agent escalates or settles according to user's configured floor.
+     - **Outcome Card**: Displays `{claimed: 819.0, recovered: 819.0, rounds: 1, status: Settled}`.
+
+---
+
+## Three Verified Scenarios
+
+BillBack includes 4 verified end-to-end scenarios run via `.venv\Scripts\python verify_three_scenarios.py`:
+1. **Accept**: Simulated vendor accepts the evidence immediately in Round 1 and issues a full credit note (Rs. 819.00 recovered).
+2. **Partial 50%**: Simulated vendor offers 50% (Rs. 409.50). The agent counters for 3 rounds presenting arithmetic proof, and safely escalates to the owner when the vendor does not reach the 80% floor.
+3. **Deny**: Simulated vendor disputes dispatch. The agent counters across 3 rounds with signed delivery challan proof before escalating to human collection.
+4. **Approval Mode**: Autonomous mode OFF. Dispute email halts in `Awaiting approval` state until user inspects, edits, and clicks "Approve".
 
 ---
 
 ## Honesty and Limitations
 
 - **Synthetically Generated Test Data**:
-  - Sample invoices (`test_bill1.jpg` to `test_bill6.jpg`), delivery slips (`test_slip*.jpg`), and chat screenshots (`test_chat1.jpg` to `test_chat3.jpg`) are synthetic test data generated with deliberate arithmetic errors and discrepancies for testing.
-  - The 4 historical invoices for *City Wholesale Mart* in the sidebar are seeded test data to demonstrate the price-drift detection algorithm.
+  - Sample invoices (`test_bill1.jpg` through `test_bill6.jpg`), delivery slips (`test_slip*.jpg`), and chat screenshots (`test_chat1.jpg` through `test_chat3.jpg`) are synthetic test fixtures designed with known, planted discrepancies to measure audit accuracy.
+  - The 4 historical invoices for *City Wholesale Mart* shown in the sidebar price-drift monitor are seeded test records (`seeded=true`) to demonstrate the consecutive price-drift detection algorithm.
 - **Simulated Vendor**:
-  - In-app vendor responses are generated by a second model persona labeled `"Simulated vendor"` for predictable demonstration of counter-offers and escalations.
+  - In-app vendor responses are generated by a simulation module (`vendor_sim.py`) strictly labeled `"Simulated vendor"` for predictable demonstration of counter-offers and escalations.
 - **Voice Agreement Input**:
-  - Voice agreements use the browser's native Web Speech API (supporting Indian English, Hindi, and Kannada) to produce a local transcript, which is then parsed by `muse-spark-1.3`. Meta's `input_audio` multimodal format was tested and found to be currently unsupported on the standard chat completions endpoint.
-- **Real-Photo Accuracy**:
-  - Evaluated on 5 real bills (14 line items, all matched; mostly printed or digital receipts; handwritten physical paper bills not yet tested; documented in `samples/accuracy.md`).
-  - Synthetic test scores (100%) reflect baseline model capabilities on clean digital renders; real-world receipts were tested against tape occlusion, platform breakdowns, and complex pharmacy trade discount calculations.
+  - Voice agreements utilize the browser's native Web Speech API (supporting Indian English, Hindi, and Kannada) to produce a local transcript, which is subsequently parsed into structured contract rates by `muse-spark-1.3`. Meta's `input_audio` multimodal format was evaluated and is currently unsupported on the standard chat completions endpoint.
+- **Real-Photo Accuracy & The `hck.jpeg` Failure**:
+  - Tested across 5 real bills (14 line items, 100% accurate match; mostly printed or digital receipts including Zomato slips, Google Pay receipts, Netmeds tax invoices, and Flipkart invoices; physical handwritten chits remain untested; documented in `samples/accuracy.md`).
+  - **Honest Failure Handling**: When tested with `samples/real/hck.jpeg` (a Campus Activewear Flipkart shipping label containing an item name but zero prices or totals), initial extraction hallucinated a 0.00 clean bill. We engineered an **Extraction Guard** (`extract.py`): bills with missing rates or null grand totals are marked `uncertain`, halting the pipeline into `needs_review` without drafting emails.
 - **What BillBack Cannot Do**:
-  - It does not initiate legal court filings or debt collection lawsuits.
-  - It does not connect directly to banking APIs for automated fund wire transfers; settlements are issued as credit notes or corrected invoices.
+  - It does not file legal court claims or initiate legal debt collection.
+  - It does not connect directly to banking rails for automated wire reversals; settlements are documented as credit notes or revised tax invoices.
 
 ---
 
 ## Meta Model Products Used
-- **`muse-spark-1.3`**: Powers all document vision understanding (printed invoices, handwritten chits, delivery challans, chat screenshots), extraction, audit structuring, and vendor negotiation simulation via `https://api.meta.ai/v1`.
+- **`muse-spark-1.3`**: Powers all document vision understanding (printed bills, handwritten chits, delivery slips, chat screenshots), structured JSON extraction, and agreement rate parsing via `https://api.meta.ai/v1`.

@@ -40,6 +40,7 @@ CASE_EVENT_HISTORY = {} # case_id -> list of {"event": ..., "data": ...}
 CASE_SUBSCRIBERS = {}    # case_id -> list of asyncio.Queue
 CASE_RUNNING_TASKS = {}
 CASE_APPROVAL_EVENTS = {}
+CASE_APPROVED_SET = set()
 CASE_EDITED_EMAILS = {}
 
 async def _publish_event(case_id: str, event_type: str, data: dict):
@@ -56,7 +57,8 @@ class ApprovalPayload(BaseModel):
 class DemoCasePayload(BaseModel):
     vendor_mode: Optional[str] = "partial_50"
     min_accept_percent: Optional[float] = 80.0
-    autonomous: Optional[bool] = False
+    autonomous: Optional[bool] = True
+    demo_pacing: Optional[bool] = True
 
 @app.get("/")
 def root():
@@ -68,29 +70,34 @@ def create_demo_case(payload: DemoCasePayload):
     case_dir = UPLOAD_DIR / case_id
     case_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy bill5 and slip5 sample images
+    # Copy bill5, slip5, and chat sample images (Task 2)
     inv_src = Path("samples/test_bill5.jpg")
     slip_src = Path("samples/test_slip5.jpg")
+    chat_src = Path("samples/test_chat3.jpg")
     
     inv_dst = case_dir / "test_bill5.jpg"
     slip_dst = case_dir / "test_slip5.jpg"
+    chat_dst = case_dir / "test_chat3.jpg"
     
     inv_dst.write_bytes(inv_src.read_bytes())
     slip_dst.write_bytes(slip_src.read_bytes())
+    chat_dst.write_bytes(chat_src.read_bytes())
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
     INSERT INTO cases (
         id, invoice_file, slip_file, agreement_file, vendor_email, 
-        vendor_mode, min_accept_percent, autonomous, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        vendor_mode, min_accept_percent, autonomous, demo_pacing, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         case_id, str(inv_dst), str(slip_dst), 
-        None, "vendor@example.com",
+        str(chat_dst), "vendor@example.com",
         payload.vendor_mode or "partial_50", 
-        payload.min_accept_percent or 80.0, 
-        1 if payload.autonomous else 0, "created"
+        payload.min_accept_percent if payload.min_accept_percent is not None else 80.0, 
+        1 if payload.autonomous else 0,
+        1 if (payload.demo_pacing is not False) else 0,
+        "created"
     ))
     conn.commit()
     conn.close()
@@ -130,7 +137,8 @@ async def create_case(
     vendor_email: str = Form("vendor@example.com"),
     vendor_mode: str = Form("realistic"),
     min_accept_percent: float = Form(80.0),
-    autonomous: bool = Form(True)
+    autonomous: bool = Form(True),
+    demo_pacing: bool = Form(True)
 ):
     case_id = f"case_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     case_dir = UPLOAD_DIR / case_id
@@ -160,12 +168,12 @@ async def create_case(
     cur.execute("""
     INSERT INTO cases (
         id, invoice_file, slip_file, agreement_file, vendor_email, 
-        vendor_mode, min_accept_percent, autonomous, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        vendor_mode, min_accept_percent, autonomous, demo_pacing, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         case_id, str(inv_path), str(slip_path) if slip_path else None, 
         str(agreed_path) if agreed_path else None, vendor_email,
-        vendor_mode, min_accept_percent, 1 if autonomous else 0, "created"
+        vendor_mode, min_accept_percent, 1 if autonomous else 0, 1 if demo_pacing else 0, "created"
     ))
     conn.commit()
     conn.close()
@@ -188,13 +196,23 @@ async def execute_case_workflow(case_id: str):
     vendor_mode = c_row["vendor_mode"] or "realistic"
     min_accept_pct = float(c_row["min_accept_percent"] or 80.0)
     autonomous = bool(c_row["autonomous"])
+    demo_pacing = bool(c_row.get("demo_pacing", 1))
 
     state = {}
 
     async def emit(event_type: str, data: dict):
+        if demo_pacing:
+            await asyncio.sleep(0.4)
         await _publish_event(case_id, event_type, data)
 
     try:
+        # Fault Injection Simulation (Task 4)
+        if os.getenv("FAULT_INJECT") == "timeout":
+            await emit("tool_start", {"step": 1, "tool": "extract_document", "doc_type": "invoice", "path": inv_path})
+            if demo_pacing:
+                await asyncio.sleep(0.4)
+            raise TimeoutError("Meta AI API call timed out after 60s (simulated FAULT_INJECT=timeout)")
+
         # Step 1: Extract Invoice
         await emit("tool_start", {"step": 1, "tool": "extract_document", "doc_type": "invoice", "path": inv_path})
         inv_data = extract(inv_path, "invoice")
@@ -287,13 +305,15 @@ async def execute_case_workflow(case_id: str):
         # Human Approval Check if non-autonomous
         if not autonomous:
             _update_db_case(case_id, vendor_name, inv_no, "awaiting_approval", total_claimed, 0.0, audit_res, None, email_body)
+            approval_event = asyncio.Event()
+            CASE_APPROVAL_EVENTS[case_id] = approval_event
             await emit("awaiting_approval", {"case_id": case_id, "email": draft_payload})
             
             # Wait for approval signal
-            approval_event = asyncio.Event()
-            CASE_APPROVAL_EVENTS[case_id] = approval_event
-            await approval_event.wait()
-            del CASE_APPROVAL_EVENTS[case_id]
+            if case_id not in CASE_APPROVED_SET:
+                await approval_event.wait()
+            if case_id in CASE_APPROVAL_EVENTS:
+                del CASE_APPROVAL_EVENTS[case_id]
 
             if case_id in CASE_EDITED_EMAILS:
                 ed = CASE_EDITED_EMAILS.pop(case_id)
@@ -339,7 +359,7 @@ async def execute_case_workflow(case_id: str):
                 await emit("agent_reply", a_entry)
                 break
             else:
-                if r_num < 3 and vendor_mode != "deny":
+                if r_num < 3:
                     counter_text = (
                         f"Dear {vendor_team},\n\nWe cannot accept Rs. {offer}. As documented in our arithmetic and goods receipt audit, "
                         f"the exact overcharge is Rs. {total_claimed}. "
@@ -449,11 +469,16 @@ async def stream_case(case_id: str):
     )
 
 @app.post("/api/cases/{case_id}/approve")
-def approve_case(case_id: str, payload: Optional[ApprovalPayload] = None):
+async def approve_case(case_id: str, payload: Optional[ApprovalPayload] = None):
     if payload:
         CASE_EDITED_EMAILS[case_id] = payload
+    CASE_APPROVED_SET.add(case_id)
     if case_id in CASE_APPROVAL_EVENTS:
-        CASE_APPROVAL_EVENTS[case_id].set()
+        ev = CASE_APPROVAL_EVENTS[case_id]
+        try:
+            ev._loop.call_soon_threadsafe(ev.set)
+        except Exception:
+            ev.set()
         return {"status": "approved", "case_id": case_id}
     
     # Check if case exists in db

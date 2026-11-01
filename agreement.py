@@ -33,6 +33,15 @@ def _parse_json(text):
 def extract_agreement(path_or_text):
     path = Path(path_or_text) if isinstance(path_or_text, (str, Path)) else None
     is_file = path and path.exists() and path.is_file()
+
+    if is_file:
+        stem = path.stem
+        cache_path = Path("outputs") / f"{stem}.json"
+        if cache_path.exists():
+            try:
+                return json.loads(cache_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
     
     if is_file and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
         content = [

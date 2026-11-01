@@ -39,6 +39,7 @@ def init_db():
         vendor_mode TEXT,
         min_accept_percent REAL,
         autonomous INTEGER DEFAULT 1,
+        demo_pacing INTEGER DEFAULT 1,
         status TEXT,
         claimed REAL DEFAULT 0,
         recovered REAL DEFAULT 0,
@@ -47,6 +48,10 @@ def init_db():
         email_draft TEXT
     )
     """)
+    cur.execute("PRAGMA table_info(cases)")
+    case_cols = [col[1] for col in cur.fetchall()]
+    if "demo_pacing" not in case_cols:
+        cur.execute("ALTER TABLE cases ADD COLUMN demo_pacing INTEGER DEFAULT 1")
     conn.commit()
     conn.close()
 
