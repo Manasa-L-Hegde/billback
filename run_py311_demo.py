@@ -61,8 +61,8 @@ def main():
             print(f"[+] GET /health -> Status: {resp.status} | Body: {health}")
             assert resp.status == 200
 
-        # 2. Trigger demo case
-        demo_payload = json.dumps({"vendor_mode": "cached", "demo_pacing": False}).encode("utf-8")
+        # 2. Trigger demo case (standard demo: partial_50 vendor, floor 80%, ends in escalation)
+        demo_payload = json.dumps({"vendor_mode": "partial_50", "demo_pacing": False}).encode("utf-8")
         req = urllib.request.Request(
             f"http://127.0.0.1:{PORT}/api/cases/demo",
             data=demo_payload,
@@ -136,3 +136,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 from collections import defaultdict
 from PIL import Image
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request, Response
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -136,29 +136,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Visitor Isolation Session Cookie Middleware (Requirement 2)
-@app.middleware("http")
-async def session_cookie_middleware(request: Request, call_next):
-    session_id = request.cookies.get("bb_session")
-    is_new = False
-    if not session_id:
-        session_id = f"sess_{uuid.uuid4().hex}"
-        is_new = True
-    request.state.session_id = session_id
-
-    response = await call_next(request)
-
-    if is_new or not request.cookies.get("bb_session"):
-        response.set_cookie(
-            key="bb_session",
-            value=session_id,
-            httponly=True,
-            samesite="lax",
-            max_age=30 * 24 * 3600,
-            path="/"
-        )
-    return response
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 UPLOAD_DIR = Path("uploads")
@@ -205,10 +182,15 @@ def health_check():
     }
 
 @app.post("/api/cases/demo")
-def create_demo_case(request: Request, payload: DemoCasePayload):
+def create_demo_case(request: Request, response: Response, payload: DemoCasePayload):
     client_ip = get_client_ip(request)
     limit_status = check_rate_limits(client_ip, is_demo=True)
     record_case_created(client_ip, is_demo=True)
+
+    session_id = request.cookies.get("bb_session")
+    if not session_id:
+        session_id = f"sess_{uuid.uuid4().hex}"
+        response.set_cookie(key="bb_session", value=session_id, httponly=True, samesite="lax", max_age=30 * 24 * 3600, path="/")
 
     case_id = f"demo_case_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     case_dir = UPLOAD_DIR / case_id
@@ -230,7 +212,6 @@ def create_demo_case(request: Request, payload: DemoCasePayload):
     # In public mode, never use client vendor email
     v_email = "simulated-vendor@example.com" if PUBLIC_MODE else "vendor@example.com"
     force_cache_flag = 1 if (limit_status == "cached_replay" or payload.vendor_mode == "cached") else 0
-    session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or "default_session"
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -261,7 +242,7 @@ def list_cases(request: Request):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     if PUBLIC_MODE:
-        session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or ""
+        session_id = request.cookies.get("bb_session") or ""
         cur.execute("SELECT * FROM cases WHERE session_id = ? ORDER BY created_at DESC", (session_id,))
     else:
         cur.execute("SELECT * FROM cases ORDER BY created_at DESC")
@@ -288,6 +269,7 @@ def get_all_drift():
 @app.post("/api/cases")
 async def create_case(
     request: Request,
+    response: Response,
     invoice: UploadFile = File(...),
     slip: Optional[UploadFile] = File(None),
     agreement_file: Optional[UploadFile] = File(None),
@@ -342,7 +324,10 @@ async def create_case(
 
     # In public mode, never use user-submitted vendor email
     v_email = "simulated-vendor@example.com" if PUBLIC_MODE else (vendor_email or "vendor@example.com")
-    session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or "default_session"
+    session_id = request.cookies.get("bb_session")
+    if not session_id:
+        session_id = f"sess_{uuid.uuid4().hex}"
+        response.set_cookie(key="bb_session", value=session_id, httponly=True, samesite="lax", max_age=30 * 24 * 3600, path="/")
 
     # Insert case in SQLite
     conn = sqlite3.connect(DB_PATH)
@@ -684,7 +669,7 @@ def _update_db_case(case_id, vendor, inv_no, status, claimed, recovered, audit_r
 @app.get("/api/cases/{case_id}/stream")
 async def stream_case(case_id: str, request: Request):
     if PUBLIC_MODE:
-        session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or ""
+        session_id = request.cookies.get("bb_session") or ""
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT session_id FROM cases WHERE id = ?", (case_id,))
@@ -741,7 +726,7 @@ async def stream_case(case_id: str, request: Request):
 @app.post("/api/cases/{case_id}/approve")
 async def approve_case(case_id: str, request: Request, payload: Optional[ApprovalPayload] = None):
     if PUBLIC_MODE:
-        session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or ""
+        session_id = request.cookies.get("bb_session") or ""
         conn = sqlite3.connect(DB_PATH)
         cur = conn.cursor()
         cur.execute("SELECT session_id FROM cases WHERE id = ?", (case_id,))

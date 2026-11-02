@@ -13,7 +13,7 @@ Evaluated across 5 diverse real-world bills: utility, online food delivery, digi
 | `real1.jpg` | Electricity / Utility | Hubli Electricity (HESCOM) | Jul 16, 2026 | ₹238.00 | ₹238.00 | 1/1 | 100.0% | Exact match: Vendor, Account ID 912796, Bill No 202607091279601 |
 | `real2.jpg` | Restaurant Delivery Slip | Sri Skanda Sagar, Kengeri (Zomato) | 30 Oct | ₹160.00 | ₹160.00 | 1/1 | 100.0% | Veg Fried Rice (1 @ ₹160), Order #8779962220; tape partially obscures header |
 | `real3.jpg` | Mobile Recharge (GPay) | Jio Prepaid | 9 Sept 2026 | ₹800.90 | ₹800.90 | 2/2 | 100.0% | Plan price ₹799 + Platform fee ₹1.90 = ₹800.90 exact match |
-| `real4.jpg` | Pharmacy / Medicine | netmeds.com India Ki Pharmacy | 10-10-2026 | ₹3732.00 | ₹3732.00 | 4/4 | 100.0% | 4 prescription drugs: Prescription Item A (6), Prescription Item B (4), Prescription Item C (4), Prescription Item D (6). Discount of ₹883.10 reconciled; exact grand total ₹3,732.00. |
+| `real4.jpg` | Pharmacy / Medicine | netmeds.com India Ki Pharmacy | 10-10-2026 | ₹3732.00 | ₹3732.00 | 4/4 | 100.0% | 4 prescription medicine items (quantities 6, 4, 4, 6). Discount of ₹883.10 reconciled; exact grand total ₹3,732.00. |
 | `real5.png` | E-Commerce Platform Fee | Flipkart Internet Private Limited | 17-09-2025 | ₹10.00 | ₹10.00 | 6/6 | 100.0% | 6 breakdown lines of platform fees summing to ₹10.00 total. Taxable value ₹8.46 + ₹1.54 GST correctly identified. |
 | `hck.jpeg` | E-Commerce Shipping Label | CAMPUS ACTIVEWEAR LIMITED | 25/10/26 | Unpriced label | None | 0/1 (Flagged) | 0.0% | **Extraction Guard Triggered**: Document was a logistics shipping label with no prices/rates printed. Identified as `uncertain` with status `needs_review`; silent failure prevented. |
 

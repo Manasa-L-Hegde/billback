@@ -884,35 +884,37 @@ Python Version    : 3.11.15 (main, May  8 2026, 18:37:19) [MSC v.1944 64 bit (AM
     Command: .venv311\Scripts\uvicorn.exe server:app --host 127.0.0.1 --port 8096 --proxy-headers --forwarded-allow-ips=*
 [+] Uvicorn server started successfully in Python 3.11 virtual environment.
 [+] GET /health -> Status: 200 | Body: {'status': 'ok', 'public_mode': True, 'cases_today': 0, 'budget_reached': False, 'budget_cap': 150}
-[+] POST /api/cases/demo -> Status: 200 | Case ID: demo_case_1793602407_7d7ba9
-    Set-Cookie header received: bb_session=sess_27c2621d81c741b09771909edd37be9f; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax
+[+] POST /api/cases/demo -> Status: 200 | Case ID: demo_case_1793609441_eff4ca
+    Set-Cookie header received: bb_session=sess_15399f958e944746869f056a83feb618; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax
 
-[*] Connecting to SSE stream for demo_case_1793602407_7d7ba9...
-    -> [SSE Event] tool_start: {'step': 1, 'tool': 'extract_document', 'doc_type': 'invoice', 'path': 'uploads\\demo_case_1793602407_7d7ba9\\test_bill5.jpg'}
+[*] Connecting to SSE stream for demo_case_1793609441_eff4ca...
+    -> [SSE Event] tool_start: {'step': 1, 'tool': 'extract_document', 'doc_type': 'invoice', 'path': 'uploads\\demo_case_1793609441_eff4ca\\test_bill5.jpg'}
     -> [SSE Event] tool_result: {'step': 1, 'tool': 'extract_document', 'doc_type': 'invoice', 'result': {'vendor': 'CITY WHOLESALE MART', ...}}
-    -> [SSE Event] tool_start: {'step': 2, 'tool': 'extract_document', 'doc_type': 'slip', 'path': 'uploads\\demo_case_1793602407_7d7ba9\\test_slip5.jpg'}
+    -> [SSE Event] tool_start: {'step': 2, 'tool': 'extract_document', 'doc_type': 'slip', 'path': 'uploads\\demo_case_1793609441_eff4ca\\test_slip5.jpg'}
     -> [SSE Event] tool_result: {'step': 2, 'tool': 'extract_document', 'doc_type': 'slip', 'result': {'vendor': 'CITY WHOLESALE MART', ...}}
-    -> [SSE Event] tool_start: {'step': 3, 'tool': 'read_agreement', 'path': 'uploads\\demo_case_1793602407_7d7ba9\\test_chat3.jpg'}
+    -> [SSE Event] tool_start: {'step': 3, 'tool': 'read_agreement', 'path': 'uploads\\demo_case_1793609441_eff4ca\\test_chat3.jpg'}
     -> [SSE Event] tool_result: {'step': 3, 'tool': 'read_agreement', 'result': {'agreed_rates': {'tomatoes': 35.0, ...}}}
     -> [SSE Event] tool_start: {'step': 4, 'tool': 'run_audit'}
     -> [SSE Event] tool_result: {'step': 4, 'tool': 'run_audit', 'result': {'findings': [{'type': 'not_delivered', 'item': 'cooking oil 1l', 'overcharge': 780.0}, {'type': 'tax_on_overcharge', 'overcharge': 39.0}]}}
-    -> [SSE Event] email_draft: {'to': 'simulated-vendor@example.com', 'subject': 'Billing Dispute - Invoice CWM-9021 - Overcharge Rs. 819.0', 'body': 'Dear CITY WHOLESALE MART Accounts Team,\n\nRegarding Invoice CWM-9021 dated 2026-10-25, our automated audit identified the following billing discrepancy:\n\n- cooking oil 1l [not_delivered]: overcharge Rs. 780.0 (billed 12, slip shows 6 delivered)\n- tax on overcharge [tax_on_overcharge]: overcharge Rs. 39.0 (5.0% tax on item overcharge of 780.00)\n\nTotal Overcharge Claimed: Rs. 819.0\n\nPlease issue a corrected invoice or credit note for Rs. 819.0.\n\nRegards,\nBillBack Audit System'}
+    -> [SSE Event] email_draft: {'to': 'simulated-vendor@example.com', 'subject': 'Billing Dispute - Invoice CWM-9021 - Overcharge Rs. 819.0', 'body': 'Dear CITY WHOLESALE MART Accounts Team,\n\nRegarding Invoice CWM-9021 dated 2026-10-25, our automated audit identified the following billing discrepancy:\n\n- cooking oil 1l [not_delivered]: overcharge Rs. 780 (billed 12, slip shows 6 delivered)\n- tax on overcharge [tax_on_overcharge]: overcharge Rs. 39.0 (5.0% tax on item overcharge of 780.00)\n\nTotal Overcharge Claimed: Rs. 819.0\n\nPlease issue a corrected invoice or credit note for Rs. 819.0.\n\nRegards,\nBillBack Audit System'}
     -> [SSE Event] tool_result: {'tool': 'send_dispute_email', 'result': {'status': 'saved (dry run)', 'recipient': 'simulated-vendor@example.com'}}
-    -> [SSE Event] vendor_reply: {'round': 1, 'sender': 'Simulated vendor', 'reply': 'Dear Customer,\n\nWe reviewed your dispute. We can offer a partial 50% credit of Rs. 409.5 to resolve this quickly.\n\nRegards,\nSimulated Vendor Accounts Team', 'offer': 409.5, 'source': 'cache', 'latency': 0.0, 'tokens': 0}
+    -> [SSE Event] vendor_reply: {'round': 1, 'sender': 'Simulated vendor', 'reply': 'Dear Valued Customer,\n\nThank you for your email regarding Invoice CWM-9021 dated 2026-10-25.\n\nWe have checked our records for the cooking oil 1l quantity difference (billed 12 vs 6 delivered). While our dispatch shows full loading, as a goodwill gesture and per our standard store policy to split the difference on delivery shortages, we can offer a 50% credit.\n\nWe are pleased to issue a credit note for Rs. 409.5 against the claimed Rs. 819.0. Kindly confirm acceptance so we can adjust it in your next statement.\n\nRegards,\nCITY WHOLESALE MART Accounts Team', 'offer': 409.5, 'source': 'live', 'latency': 5.57, 'tokens': 1284}
     -> [SSE Event] agent_reply: {'round': 1, 'sender': 'BillBack Agent', 'action': 'COUNTER', 'counter_offer': 819.0, 'message': 'Dear CITY WHOLESALE MART,\n\nWe cannot accept Rs. 409.5. As documented in our arithmetic and goods receipt audit, the exact overcharge is Rs. 819.0. Please approve credit note of Rs. 819.0 to resolve this dispute.\n\nRegards,\nBillBack Audit', 'source': 'deterministic_policy'}
-    -> [SSE Event] vendor_reply: {'round': 2, 'sender': 'Simulated vendor', 'reply': 'Dear Customer,\n\nHaving verified your signed delivery challan and agreement, we concede the billing discrepancy and grant full credit of Rs. 819.0.\n\nRegards,\nSimulated Vendor Accounts Team', 'offer': 819.0, 'source': 'cache', 'latency': 0.0, 'tokens': 0}
-    -> [SSE Event] agent_reply: {'round': 2, 'sender': 'BillBack Agent', 'action': 'ACCEPT', 'message': 'Settlement accepted: Rs. 819.0 meets recovery floor (Rs. 655.2). Case closed.', 'source': 'deterministic_policy'}
-    -> [SSE Event] outcome: {'claimed': 819.0, 'recovered': 819.0, 'vendor_offer': 819.0, 'floor': 655.2, 'rounds': 2, 'status': 'Settled in round 2: Vendor granted Rs. 819.0 (>= 80.0% floor)', 'escalated': False, ...}
+    -> [SSE Event] vendor_reply: {'round': 2, 'sender': 'Simulated vendor', 'reply': 'Dear BillBack Audit Team, Thank you for your email and audit details regarding Rs. 819.0. We have reviewed it again. As per our standard store policy and considering handling costs, we can offer 50% credit of Rs. 409.5 as a fair split of the difference. Kindly accept this to resolve the matter. Regards, CITY WHOLESALE MART', 'offer': 409.5, 'source': 'live', 'latency': 6.41, 'tokens': 1422}
+    -> [SSE Event] agent_reply: {'round': 2, 'sender': 'BillBack Agent', 'action': 'COUNTER', 'counter_offer': 819.0, 'message': 'Dear CITY WHOLESALE MART,\n\nWe cannot accept Rs. 409.5. As documented in our arithmetic and goods receipt audit, the exact overcharge is Rs. 819.0. Please approve credit note of Rs. 819.0 to resolve this dispute.\n\nRegards,\nBillBack Audit', 'source': 'deterministic_policy'}
+    -> [SSE Event] vendor_reply: {'round': 3, 'sender': 'Simulated vendor', 'reply': 'Dear BillBack Audit Team, Thank you for your email and for sharing your audit for Rs. 819.0. We have reviewed this carefully at our end. As per our standard store policy and after accounting for handling and transport costs, we are unable to approve the full amount, but we can offer a 50% credit of Rs. 409.5 as a fair split to close this matter. We value your business and hope you will accept this resolution. Regards, CITY WHOLESALE MART', 'offer': 409.5, 'source': 'live', 'latency': 6.25, 'tokens': 1343}
+    -> [SSE Event] agent_reply: {'round': 3, 'sender': 'BillBack Agent', 'action': 'ESCALATE', 'message': 'Final offer Rs. 409.5 rejected. Escalated to owner, awaiting your decision.', 'source': 'deterministic_policy'}
+    -> [SSE Event] outcome: {'claimed': 819.0, 'recovered': 0.0, 'vendor_offer': 409.5, 'floor': 655.2, 'rounds': 3, 'status': 'Vendor offer Rs. 409.5, awaiting your decision', 'escalated': True, ...}
 
 ================================================================================
  DEMO CASE EXECUTION SUMMARY (PYTHON 3.11 + PUBLIC_MODE=1) 
 ================================================================================
-Outcome Status   : Settled in round 2: Vendor granted Rs. 819.0 (>= 80.0% floor)
+Outcome Status   : Vendor offer Rs. 409.5, awaiting your decision
 Claimed Overcharge: Rs. 819.00
-Recovered Amount  : Rs. 819.00
-Negotiation Rounds: 2
+Recovered Amount  : Rs. 0.00
+Negotiation Rounds: 3
 Source Tag        : cached replay
-Total SSE Events  : 15
+Total SSE Events  : 17
 RESULT            : ALL PYTHON 3.11 DEPLOYMENT TESTS PASSED PERFECTLY
 ================================================================================
 [*] Terminating uvicorn background process...

@@ -126,7 +126,24 @@ flowchart TD
      - **Evidence Chips**: Arithmetic `[OK]`, Delivery `[FAILED]`, Agreement `[OK]`.
      - **Dispute Email**: Formatted with line-item arithmetic proof sent to vendor.
      - **Multi-Round Negotiation**: Simulated vendor offers Rs. 409.50 (50%); agent counters with challan proof; agent escalates or settles according to user's configured floor.
-     - **Outcome Card**: Displays `{claimed: 819.0, recovered: 819.0, rounds: 1, status: Settled}`.
+     - **Outcome Card**: Displays `{claimed: 819.0, recovered: 0.0, rounds: 3, status: "Vendor offer Rs. 409.5, awaiting your decision"}` (escalates cleanly to owner because the simulated vendor's 50% offer fails to reach the user's 80% recovery floor).
+
+---
+
+## Public Deployment & Security Hardening (`PUBLIC_MODE=1`)
+
+For hackathon evaluation and public hosting (e.g. on Render), BillBack includes an environment switch `PUBLIC_MODE=1`:
+- **Forced Email Dry-Run**: All dispute email dispatch is strictly forced to dry-run mode (`simulated-vendor@example.com`). Real emails are never sent, recipient addresses from user input are ignored, and no SMTP/Gmail credentials are required on the host.
+- **Visitor Isolation**: Each visitor is assigned an `HttpOnly` session cookie (`bb_session`). Case history, live SSE streams (`/api/cases/{id}/stream`), and settlement approval actions are strictly isolated to the session that created them. Attempting to view or approve another session's case yields `HTTP 403 Forbidden`. Price-drift alerts remain globally accessible (clearly labeled `seeded=true`).
+- **Upload Hardening & Zero-Persistence Disk**:
+  - Accepts only JPG, PNG, and WebP images up to 5 MB.
+  - File types are validated using content inspection (magic bytes); renamed executables (`.exe` renamed to `.jpg`) are rejected with `HTTP 400`.
+  - In public mode, uploaded case files are completely purged from disk immediately upon completion of the case pipeline.
+- **Rate Limiting & Threat Model**:
+  - Custom bill audits are limited to 5 cases/hour/IP, and Demo cases to 30 cases/hour/IP.
+  - Client IPs are keyed from the reverse-proxy `X-Forwarded-For` header. Because client-supplied `X-Forwarded-For` headers could theoretically be spoofed if an upstream reverse-proxy does not sanitize them, this is treated as a polite throttling convention rather than an unbreakable boundary.
+  - **The Real Backstops**: The application enforces a strict global hard cap of **150 cases per day** across all visitors (returning a friendly banner to watch the demo video or explore cached replays once reached), backed by a hard Meta API usage budget alert.
+- **Disabled Endpoints**: Destructive endpoints (e.g., `/api/dev/reset` and `?dev=1`) are disabled under `PUBLIC_MODE=1`.
 
 ---
 
