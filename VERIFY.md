@@ -924,3 +924,115 @@ RESULT            : ALL PYTHON 3.11 DEPLOYMENT TESTS PASSED PERFECTLY
 
 
 
+
+
+---
+
+## Task 15: Public Mode Verification & Security Audit (`verify_public_mode.py`)
+
+### Stated Check:
+Run the complete 6-check public mode security verification suite:
+1. SMTP is never called in `PUBLIC_MODE=1` (forced recipient override + dry-run mode).
+2. Rate limiting: 6th custom case from one IP in an hour refused politely with HTTP 429.
+3. Content inspection: Executable renamed to `.jpg` rejected by magic byte / content verification.
+4. Upload limit: 12 MB file rejected (HTTP 413) against 5 MB maximum.
+5. Disk isolation: Upload folder completely purged from disk after case completes.
+6. Secrets & PII scan: Zero API keys, zero passwords, zero personal emails found in repository.
+
+### Raw Terminal Output:
+```
+================================================================================
+ TASK 5: PUBLIC_MODE=1 VERIFICATION & SECURITY AUDIT 
+================================================================================
+
+[Check 1/6] Proving case / email NEVER calls SMTP in PUBLIC_MODE=1:
+    Recipient passed in : 'hacker@malicious.com'
+    Effective Recipient : 'simulated-vendor@example.com' (forced override)
+    Delivery Status     : 'saved (dry run)'
+    SMTP_SSL Called     : False (0 times)
+    [+] PASS (i): SMTP is never called; user input recipient is strictly ignored.
+
+[Check 2/6] Proving rate limit: 6th custom case from 1 IP in 1 hr refused politely (HTTP 429):
+    Case #1 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #2 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #3 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #4 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #5 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #6 from IP 203.0.113.42 -> HTTP 429
+    Detail message: Rate limit reached: Maximum 5 cases per hour per IP. Please try again later or watch the demo video.
+    [+] PASS (ii): 6th custom case from IP is refused politely with HTTP 429.
+
+[Check 3/6] Proving .exe file renamed to .jpg is rejected by content inspection:
+    Upload response status : HTTP 400
+    Upload response detail : Invalid file type for 'malicious_payload.jpg'. Only JPG, PNG, and WebP images are allowed (verified by file content).
+    [+] PASS (iii): Renamed .exe rejected by magic byte / content verification.
+
+[Check 4/6] Proving 12 MB file is rejected (exceeds 5 MB limit):
+    Upload response status : HTTP 413
+    Upload response detail : File 'oversized_bill.jpg' exceeds maximum allowed size of 5 MB.
+    [+] PASS (iv): 12 MB file rejected with HTTP 413.
+
+[Check 5/6] Proving uploads folder is empty after a case run completes:
+    Created case ID : case_1793610359_667d0c
+    Files in upload folder during processing: ['test_bill5.jpg']
+    Remaining items in 'uploads/' after run: []
+    [+] PASS (v): Uploads folder is completely empty after run completes.
+
+[Check 6/6] Proving git grep finds no API key, password, or personal email in the repo:
+    git grep -i 'aizasy' matches: 0
+    git grep -E 'sk-...' matches: 0
+    git grep 'GMAIL_APP_PASSWORD=' (non-placeholder) matches: 0
+    git grep email scan: 0 total matches, 0 personal/unwhitelisted matches
+    [+] PASS (vi): 0 API keys, 0 passwords, 0 personal emails found in repository.
+
+================================================================================
+ ALL 6 PUBLIC_MODE SECURITY & RATE-LIMIT CHECKS PASSED (100%) 
+================================================================================
+```
+
+---
+
+## Task 16: Complete Git History Privacy Purge & Verification Proof
+
+### Stated Check:
+1. Pixel-level redaction applied to all real bill samples in `samples/real/`:
+   - `hck.jpeg`: Name and residential Bangalore address fully blacked out.
+   - `real1.jpg`: Account UPI handles and transaction IDs blacked out.
+   - `real3.jpg`: Phone number, UPI handles, and transaction IDs blacked out.
+   - `real4.jpg`: Doctor/patient names, residential addresses, and all 4 prescription medicine names blacked out.
+   - `real5.png`: Customer name and Kumta residential address blanked out.
+2. Complete historical git rewrite with `git-filter-repo`:
+   - Stripped all historical binary blobs of `samples/real/` from entire history (`--invert-paths`).
+   - Replaced all personal names, UPI handles, and prescription drug names across commit messages and text history (`--replace-text`).
+   - Replaced author/committer email across git history metadata (`--email-callback`).
+3. Re-committed solely the redacted images into a fresh, clean commit (`cdfee84`).
+4. Force pushed rewritten history to `origin/deploy` and `origin/main`.
+
+### Raw Terminal Output:
+```
+# 1. Verify that only the single clean commit touches samples/real/:
+$ git log --oneline -- samples/real/
+cdfee84 chore(samples): add privacy-redacted real bill samples
+
+# 2. Verify all personal terms and PII are 0 matches across the entire git history:
+$ .venv\Scripts\python -c "import subprocess; terms = ['manasalshegde', 'Krishna', 'Shanbhag', 'Prakruti', '79756', 'Korandil', 'Telmikind', 'Axcer', 'Glycomet']; 
+for t in terms:
+    res = subprocess.run(['git', 'log', '-S', t, '--oneline'], capture_output=True, text=True)
+    matches = res.stdout.strip()
+    print(t, '->', matches if matches else 'CLEAN (0 matches)')
+"
+manasalshegde -> CLEAN (0 matches)
+Krishna -> CLEAN (0 matches)
+Shanbhag -> CLEAN (0 matches)
+Prakruti -> CLEAN (0 matches)
+79756 -> CLEAN (0 matches)
+Korandil -> CLEAN (0 matches)
+Telmikind -> CLEAN (0 matches)
+Axcer -> CLEAN (0 matches)
+Glycomet -> CLEAN (0 matches)
+
+# 3. Remote branches synced:
+$ git fetch origin; git log -n 1 origin/main --oneline; git log -n 1 origin/deploy --oneline
+cdfee84 chore(samples): add privacy-redacted real bill samples
+cdfee84 chore(samples): add privacy-redacted real bill samples
+```
