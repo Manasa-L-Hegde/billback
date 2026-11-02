@@ -59,6 +59,19 @@ flowchart TD
 
 ---
 
+## Live Demo (Public Deployment)
+
+- **Live URL**: `https://billback.onrender.com` *(Placeholder for Render public deployment)*
+- **Public Mode Safety (`PUBLIC_MODE=1`)**:
+  - **Zero SMTP / Email Dry-Run**: Outbound emails are strictly forced to dry-run logging. The recipient address is never taken from user input and is overridden to `simulated-vendor@example.com`. Gmail SMTP credentials are never stored or accessed on the public server.
+  - **Disabled Destructive Endpoints**: Administrative and reset endpoints (`/api/dev/reset`, `?dev=1`) are disabled and return HTTP 403 Forbidden.
+  - **Strict Upload Hygiene**: Only JPG, PNG, and WebP images up to 5 MB are accepted (verified by file content and magic bytes). Executables and oversized payloads are rejected immediately with friendly HTTP 400 / 413 responses. All uploaded case files are automatically deleted from disk when the case completes.
+  - **Rate Limits & Cost Budget Cap**: Limited to 5 cases per IP per hour, and a global daily cap of 150 cases per day to control Meta API costs. When the daily limit is reached, a friendly banner directs judges to the cached replay or video walkthrough.
+  - **Fixed Notice Banner**: Always displays `"⚠️ Test data and simulated vendor. Please don't upload personal bills."`
+  - **Cold Start Handling**: Lightweight frontend loads in < 1s; pings `GET /health` and displays a subtle `"Waking up the demo server..."` indicator during Render free-tier spin-up, enabling buttons as soon as the service is warm.
+
+---
+
 ## Quickstart (Fresh Clone Setup)
 
 1. **Clone the repository**:

@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-client = OpenAI(base_url="https://api.meta.ai/v1", api_key=os.environ.get("MODEL_API_KEY", ""), timeout=60.0, max_retries=2)
+META_KEY = os.environ.get("META_API_KEY") or os.environ.get("MODEL_API_KEY", "")
+client = OpenAI(base_url="https://api.meta.ai/v1", api_key=META_KEY, timeout=60.0, max_retries=2)
 MODEL = "muse-spark-1.3"
 
 SYSTEM_PROMPT = """You are reading a business agreement from a chat screenshot or message transcript between a buyer and vendor (may be in English or Hinglish).
@@ -30,12 +31,23 @@ def _parse_json(text):
     text = re.sub(r"```(?:json)?", "", text).strip()
     return json.loads(text)
 
-def extract_agreement(path_or_text, allow_cache_fallback=True):
+def extract_agreement(path_or_text, allow_cache_fallback=True, force_cache=False):
     path = Path(path_or_text) if isinstance(path_or_text, (str, Path)) else None
     is_file = path and path.exists() and path.is_file()
     stem = path.stem if is_file else None
     cache_path = Path("outputs") / f"{stem}.json" if stem else None
     t0 = time.time()
+
+    # 0. FORCED CACHE REPLAY (budget cap reached or explicitly requested)
+    if force_cache and cache_path and cache_path.exists():
+        try:
+            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+            cached_data["_source"] = "cache"
+            cached_data["_latency"] = round(time.time() - t0, 2)
+            cached_data["_tokens"] = 0
+            return cached_data
+        except Exception:
+            pass
 
     if is_file and path.suffix.lower() in [".jpg", ".jpeg", ".png", ".webp"]:
         content = [

@@ -1,7 +1,9 @@
-import os, sys, json, time, uuid, asyncio, sqlite3
+import os, sys, json, time, uuid, asyncio, sqlite3, io, shutil
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from collections import defaultdict
+from PIL import Image
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,14 +15,101 @@ from audit import audit
 from agreement import extract_agreement
 from email_tools import send_email
 from vendor_sim import simulate_vendor_reply
+from reset_demo import reset_demo
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
+
+PUBLIC_MODE = os.environ.get("PUBLIC_MODE", "0") == "1"
 
 init_db()
 seed_vendor_history()
 
 app = FastAPI(title="BillBack API", version="1.0.0")
+
+@app.on_event("startup")
+def on_startup():
+    """Ensure clean seeded state on server startup (especially Render ephemeral disks)."""
+    reset_demo()
+
+# Rate limiting and global caps (Task 1c)
+IP_CASE_TIMESTAMPS = defaultdict(list)
+GLOBAL_CASE_TIMESTAMPS = []
+
+def clean_timestamps():
+    now = time.time()
+    one_hour_ago = now - 3600
+    one_day_ago = now - 86400
+    GLOBAL_CASE_TIMESTAMPS[:] = [t for t in GLOBAL_CASE_TIMESTAMPS if t > one_day_ago]
+    for ip in list(IP_CASE_TIMESTAMPS.keys()):
+        IP_CASE_TIMESTAMPS[ip] = [t for t in IP_CASE_TIMESTAMPS[ip] if t > one_hour_ago]
+        if not IP_CASE_TIMESTAMPS[ip]:
+            del IP_CASE_TIMESTAMPS[ip]
+
+def get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "127.0.0.1"
+
+def check_rate_limits(request_ip: str, is_demo: bool = False):
+    clean_timestamps()
+    if not PUBLIC_MODE:
+        return "ok"
+    
+    # 1. Global daily cap (150 cases per day)
+    if len(GLOBAL_CASE_TIMESTAMPS) >= 150:
+        if is_demo:
+            return "cached_replay"
+        raise HTTPException(
+            status_code=429,
+            detail="Live demo budget reached. Watch the video or use Try demo case (cached replay, labelled)."
+        )
+    
+    # 2. IP limit (5 cases per IP per hour)
+    if len(IP_CASE_TIMESTAMPS[request_ip]) >= 5:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit reached: Maximum 5 cases per hour per IP. Please try again later or watch the demo video."
+        )
+    return "ok"
+
+def record_case_created(request_ip: str):
+    now = time.time()
+    IP_CASE_TIMESTAMPS[request_ip].append(now)
+    GLOBAL_CASE_TIMESTAMPS.append(now)
+
+# Upload validation (Task 1d)
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+ALLOWED_IMAGE_TYPES = {"JPEG", "PNG", "WEBP"}
+
+def validate_image_file(file_bytes: bytes, filename: str):
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File '{filename}' exceeds maximum allowed size of 5 MB."
+        )
+    is_jpeg = file_bytes.startswith(b"\xff\xd8\xff")
+    is_png = file_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+    is_webp = len(file_bytes) > 12 and file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP"
+    if not (is_jpeg or is_png or is_webp):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type for '{filename}'. Only JPG, PNG, and WebP images are allowed (verified by file content)."
+        )
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+        img.verify()
+        if img.format not in ALLOWED_IMAGE_TYPES:
+            raise ValueError(f"Format not allowed: {img.format}")
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid or corrupted image content in '{filename}'. Only valid JPG, PNG, and WebP images are permitted."
+        )
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,8 +153,23 @@ class DemoCasePayload(BaseModel):
 def root():
     return FileResponse("static/index.html")
 
+@app.get("/health")
+def health_check():
+    clean_timestamps()
+    return {
+        "status": "ok",
+        "public_mode": PUBLIC_MODE,
+        "cases_today": len(GLOBAL_CASE_TIMESTAMPS),
+        "budget_reached": len(GLOBAL_CASE_TIMESTAMPS) >= 150,
+        "budget_cap": 150
+    }
+
 @app.post("/api/cases/demo")
-def create_demo_case(payload: DemoCasePayload):
+def create_demo_case(request: Request, payload: DemoCasePayload):
+    client_ip = get_client_ip(request)
+    limit_status = check_rate_limits(client_ip, is_demo=True)
+    record_case_created(client_ip)
+
     case_id = f"demo_case_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     case_dir = UPLOAD_DIR / case_id
     case_dir.mkdir(parents=True, exist_ok=True)
@@ -83,26 +187,31 @@ def create_demo_case(payload: DemoCasePayload):
     slip_dst.write_bytes(slip_src.read_bytes())
     chat_dst.write_bytes(chat_src.read_bytes())
 
+    # In public mode, never use client vendor email
+    v_email = "simulated-vendor@example.com" if PUBLIC_MODE else "vendor@example.com"
+    force_cache_flag = 1 if (limit_status == "cached_replay" or payload.vendor_mode == "cached") else 0
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
     INSERT INTO cases (
         id, invoice_file, slip_file, agreement_file, vendor_email, 
-        vendor_mode, min_accept_percent, autonomous, demo_pacing, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        vendor_mode, min_accept_percent, autonomous, demo_pacing, status, force_cache
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         case_id, str(inv_dst), str(slip_dst), 
-        str(chat_dst), "vendor@example.com",
+        str(chat_dst), v_email,
         payload.vendor_mode or "partial_50", 
         payload.min_accept_percent if payload.min_accept_percent is not None else 80.0, 
         1 if payload.autonomous else 0,
         1 if (payload.demo_pacing is not False) else 0,
-        "created"
+        "created",
+        force_cache_flag
     ))
     conn.commit()
     conn.close()
 
-    return {"case_id": case_id, "status": "created"}
+    return {"case_id": case_id, "status": "created", "force_cache": bool(force_cache_flag)}
 
 @app.get("/api/cases")
 def list_cases():
@@ -116,6 +225,8 @@ def list_cases():
 
 @app.post("/api/dev/reset")
 def dev_reset_cases():
+    if PUBLIC_MODE:
+        raise HTTPException(status_code=403, detail="Dev reset endpoint is disabled in public mode.")
     from reset_demo import reset_demo
     reset_demo()
     return {"status": "ok", "message": "Demo data wiped and drift history re-seeded"}
@@ -130,6 +241,7 @@ def get_all_drift():
 
 @app.post("/api/cases")
 async def create_case(
+    request: Request,
     invoice: UploadFile = File(...),
     slip: Optional[UploadFile] = File(None),
     agreement_file: Optional[UploadFile] = File(None),
@@ -140,27 +252,50 @@ async def create_case(
     autonomous: bool = Form(True),
     demo_pacing: bool = Form(True)
 ):
+    client_ip = get_client_ip(request)
+    check_rate_limits(client_ip, is_demo=False)
+
+    # 1. Validate invoice image
+    inv_bytes = await invoice.read()
+    validate_image_file(inv_bytes, invoice.filename)
+
+    # 2. Validate slip image if provided
+    slip_bytes = None
+    if slip:
+        slip_bytes = await slip.read()
+        validate_image_file(slip_bytes, slip.filename)
+
+    # 3. Validate agreement image if provided
+    agreed_bytes = None
+    if agreement_file:
+        agreed_bytes = await agreement_file.read()
+        validate_image_file(agreed_bytes, agreement_file.filename)
+
+    record_case_created(client_ip)
+
     case_id = f"case_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     case_dir = UPLOAD_DIR / case_id
     case_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save uploaded files
+    # Save validated uploaded files
     inv_path = case_dir / invoice.filename
-    inv_bytes = await invoice.read()
     inv_path.write_bytes(inv_bytes)
 
     slip_path = None
-    if slip:
+    if slip and slip_bytes:
         slip_path = case_dir / slip.filename
-        slip_path.write_bytes(await slip.read())
+        slip_path.write_bytes(slip_bytes)
 
     agreed_path = None
-    if agreement_file:
+    if agreement_file and agreed_bytes:
         agreed_path = case_dir / agreement_file.filename
-        agreed_path.write_bytes(await agreement_file.read())
+        agreed_path.write_bytes(agreed_bytes)
     elif agreement_text and agreement_text.strip():
         agreed_path = case_dir / "agreement_transcript.txt"
         agreed_path.write_text(agreement_text.strip(), encoding="utf-8")
+
+    # In public mode, never use user-submitted vendor email
+    v_email = "simulated-vendor@example.com" if PUBLIC_MODE else (vendor_email or "vendor@example.com")
 
     # Insert case in SQLite
     conn = sqlite3.connect(DB_PATH)
@@ -168,12 +303,12 @@ async def create_case(
     cur.execute("""
     INSERT INTO cases (
         id, invoice_file, slip_file, agreement_file, vendor_email, 
-        vendor_mode, min_accept_percent, autonomous, demo_pacing, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        vendor_mode, min_accept_percent, autonomous, demo_pacing, status, force_cache
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         case_id, str(inv_path), str(slip_path) if slip_path else None, 
-        str(agreed_path) if agreed_path else None, vendor_email,
-        vendor_mode, min_accept_percent, 1 if autonomous else 0, 1 if demo_pacing else 0, "created"
+        str(agreed_path) if agreed_path else None, v_email,
+        vendor_mode, min_accept_percent, 1 if autonomous else 0, 1 if demo_pacing else 0, "created", 0
     ))
     conn.commit()
     conn.close()
@@ -200,6 +335,7 @@ async def execute_case_workflow(case_id: str):
 
     state = {}
     api_calls = []
+    force_cache = bool(c_row.get("force_cache", 0))
 
     def track_call(step_name, data):
         src = data.get("_source") or data.get("source") or "live"
@@ -224,7 +360,7 @@ async def execute_case_workflow(case_id: str):
 
         # Step 1: Extract Invoice
         await emit("tool_start", {"step": 1, "tool": "extract_document", "doc_type": "invoice", "path": inv_path})
-        inv_data = extract(inv_path, "invoice")
+        inv_data = extract(inv_path, "invoice", force_cache=force_cache)
         inv_meta = track_call("extract_invoice", inv_data)
         state["invoice"] = inv_data
         record_invoice_items(inv_data)
@@ -268,7 +404,7 @@ async def execute_case_workflow(case_id: str):
         # Step 2: Extract Slip if present
         if slip_path:
             await emit("tool_start", {"step": 2, "tool": "extract_document", "doc_type": "slip", "path": slip_path})
-            slip_data = extract(slip_path, "slip")
+            slip_data = extract(slip_path, "slip", force_cache=force_cache)
             slip_meta = track_call("extract_slip", slip_data)
             state["slip"] = slip_data
             await emit("tool_result", {
@@ -284,7 +420,7 @@ async def execute_case_workflow(case_id: str):
         # Step 3: Extract Agreement if present
         if agreed_path:
             await emit("tool_start", {"step": 3, "tool": "read_agreement", "path": agreed_path})
-            agreed_data = extract_agreement(agreed_path)
+            agreed_data = extract_agreement(agreed_path, force_cache=force_cache)
             agr_meta = track_call("read_agreement", agreed_data)
             state["agreement"] = agreed_data
             await emit("tool_result", {
@@ -386,7 +522,7 @@ async def execute_case_workflow(case_id: str):
         transcript = []
 
         for r_num in range(1, 4):
-            v_reply = simulate_vendor_reply(current_body, total_claimed, round_num=r_num, strategy=vendor_mode)
+            v_reply = simulate_vendor_reply(current_body, total_claimed, round_num=r_num, strategy=vendor_mode, force_cache=force_cache)
             offer = float(v_reply.get("offer_amount", 0.0))
             v_meta = track_call(f"vendor_reply_r{r_num}", v_reply)
             
@@ -475,6 +611,10 @@ async def execute_case_workflow(case_id: str):
     finally:
         for q in list(CASE_SUBSCRIBERS.get(case_id, [])):
             await q.put(None)
+        if PUBLIC_MODE:
+            case_dir = UPLOAD_DIR / case_id
+            if case_dir.exists():
+                shutil.rmtree(case_dir, ignore_errors=True)
 
 def _update_db_case(case_id, vendor, inv_no, status, claimed, recovered, audit_res, outcome, email_draft):
     conn = sqlite3.connect(DB_PATH)
@@ -514,7 +654,12 @@ async def stream_case(case_id: str):
                     return
 
             while True:
-                msg = await sub_q.get()
+                try:
+                    msg = await asyncio.wait_for(sub_q.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+
                 if msg is None:
                     yield "event: end\ndata: {}\n\n"
                     break

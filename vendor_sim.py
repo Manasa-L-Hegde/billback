@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-client = OpenAI(base_url="https://api.meta.ai/v1", api_key=os.environ.get("MODEL_API_KEY", ""), timeout=60.0, max_retries=2)
+META_KEY = os.environ.get("META_API_KEY") or os.environ.get("MODEL_API_KEY", "")
+client = OpenAI(base_url="https://api.meta.ai/v1", api_key=META_KEY, timeout=60.0, max_retries=2)
 MODEL = "muse-spark-1.3"
 
 VENDOR_SYSTEM_PROMPT = """You are roleplaying as a small wholesale shop owner / billing manager responding to a billing dispute from a customer.
@@ -71,8 +72,17 @@ def _scripted_vendor_reply(claimed_amount, round_num, strategy):
                 "decision": "accept"
             }
 
-def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="realistic", allow_fallback=True):
+def simulate_vendor_reply(dispute_text, claimed_amount, round_num=1, strategy="realistic", allow_fallback=True, force_cache=False):
     t0 = time.time()
+    
+    # 0. FORCED CACHE REPLAY (budget cap reached or scripted replay)
+    if force_cache:
+        fallback_res = _scripted_vendor_reply(claimed_amount, round_num, strategy)
+        fallback_res["source"] = "cache"
+        fallback_res["latency"] = round(time.time() - t0, 2)
+        fallback_res["tokens"] = 0
+        return fallback_res
+
     prompt = (
         f"Incoming dispute email from customer:\n\"\"\"\n{dispute_text}\n\"\"\"\n\n"
         f"Claimed overcharge amount: Rs. {claimed_amount}\n"

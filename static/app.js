@@ -132,9 +132,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Check URL query parameters (?dev=1)
   const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('dev') === '1' && devControls) {
-    devControls.classList.remove('hidden');
-  }
+
+  // Cold start & server readiness check (Task 4)
+  const coldStartBanner = document.getElementById('cold-start-banner');
+  const budgetCapBanner = document.getElementById('budget-cap-banner');
+  const publicNoticeBanner = document.getElementById('public-notice-banner');
+
+  const checkHealth = async () => {
+    let woken = false;
+    const wakeTimer = setTimeout(() => {
+      if (!woken && coldStartBanner) {
+        coldStartBanner.classList.remove('hidden');
+        if (runBtn) runBtn.disabled = true;
+        if (demoBtn) demoBtn.disabled = true;
+      }
+    }, 400);
+
+    try {
+      const res = await fetch('/health');
+      woken = true;
+      clearTimeout(wakeTimer);
+      if (res.ok) {
+        const hData = await res.json();
+        if (coldStartBanner) coldStartBanner.classList.add('hidden');
+        if (runBtn) runBtn.disabled = false;
+        if (demoBtn) demoBtn.disabled = false;
+
+        // If public mode: disable dev controls strictly
+        if (hData.public_mode) {
+          if (devControls) devControls.remove();
+        } else if (urlParams.get('dev') === '1' && devControls) {
+          devControls.classList.remove('hidden');
+        }
+
+        // If budget reached: reveal banner
+        if (hData.budget_reached && budgetCapBanner) {
+          budgetCapBanner.classList.remove('hidden');
+        }
+      } else {
+        setTimeout(checkHealth, 2000);
+      }
+    } catch (_) {
+      setTimeout(checkHealth, 2000);
+    }
+  };
+  checkHealth();
 
   // Dev Clear Cases Button
   if (clearCasesBtn) {
@@ -581,7 +623,14 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      if (!res.ok) throw new Error('Failed to create demo case');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        const errDetail = errJson.detail || 'Failed to create demo case';
+        if (res.status === 429 && budgetCapBanner) {
+          budgetCapBanner.classList.remove('hidden');
+        }
+        throw new Error(errDetail);
+      }
       const data = await res.json();
       currentCaseId = data.case_id;
       connectSSE(currentCaseId);
@@ -630,7 +679,14 @@ document.addEventListener('DOMContentLoaded', () => {
         body: formData
       });
 
-      if (!res.ok) throw new Error('Failed to upload and start case.');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        const errDetail = errJson.detail || 'Failed to upload and start case.';
+        if (res.status === 429 && budgetCapBanner) {
+          budgetCapBanner.classList.remove('hidden');
+        }
+        throw new Error(errDetail);
+      }
       const data = await res.json();
       currentCaseId = data.case_id;
       connectSSE(currentCaseId);

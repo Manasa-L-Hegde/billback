@@ -41,8 +41,26 @@
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
 
+  <!-- FIXED PUBLIC NOTICE BANNER (Task 1e) -->
+  <div id="public-notice-banner" class="bg-amber-500 text-slate-950 px-4 py-1.5 text-center text-xs font-semibold flex items-center justify-center space-x-2 border-b border-amber-600 shadow-sm sticky top-0 z-40">
+    <svg class="w-4 h-4 flex-shrink-0 text-slate-950" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+    <span>Test data and simulated vendor. Please don't upload personal bills.</span>
+  </div>
+
+  <!-- COLD START WAKE-UP BANNER (Task 4) -->
+  <div id="cold-start-banner" class="hidden bg-indigo-600 text-white px-4 py-1.5 text-center text-xs font-medium flex items-center justify-center space-x-2 sticky top-7 z-40">
+    <svg class="animate-spin w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+    <span>Waking up the demo server...</span>
+  </div>
+
+  <!-- BUDGET CAP BANNER (Task 1c) -->
+  <div id="budget-cap-banner" class="hidden bg-rose-100 text-rose-900 border-b border-rose-300 px-4 py-2 text-center text-xs font-semibold flex items-center justify-center space-x-2 sticky top-7 z-40">
+    <svg class="w-4 h-4 text-rose-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span>Live demo budget reached. Watch the video or use <strong>Try demo case (cached replay, labelled)</strong>.</span>
+  </div>
+
   <!-- TOP APP BAR -->
-  <header class="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 card-shadow">
+  <header class="h-16 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-7 z-30 card-shadow">
     <div class="flex items-center space-x-3">
       <button id="toggle-sidebar-btn" class="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-brand-500" aria-label="Toggle history sidebar">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>

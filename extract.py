@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-client = OpenAI(base_url="https://api.meta.ai/v1", api_key=os.environ["MODEL_API_KEY"], timeout=60.0, max_retries=2)
+META_KEY = os.environ.get("META_API_KEY") or os.environ.get("MODEL_API_KEY", "")
+client = OpenAI(base_url="https://api.meta.ai/v1", api_key=META_KEY, timeout=60.0, max_retries=2)
 MODEL = "muse-spark-1.3"
 
 PROMPTS = {
@@ -101,12 +102,27 @@ def check_extraction_uncertainty(bill, doc_type="invoice"):
     is_uncertain = len(reasons) > 0
     return is_uncertain, reasons
 
-def extract(path, doc_type="invoice", allow_cache_fallback=True):
+def extract(path, doc_type="invoice", allow_cache_fallback=True, force_cache=False):
     stem = Path(path).stem
     cache_path = Path("outputs") / f"{stem}.json"
     prompt_key = doc_type
     last_data = None
     t0 = time.time()
+
+    # 0. FORCED CACHE REPLAY (budget cap reached or explicitly requested)
+    if force_cache and cache_path.exists():
+        try:
+            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+            if doc_type == "invoice":
+                is_uncertain, reasons = check_extraction_uncertainty(cached_data, doc_type=doc_type)
+                cached_data["uncertain"] = is_uncertain
+                cached_data["uncertain_reasons"] = reasons
+            cached_data["_source"] = "cache"
+            cached_data["_latency"] = round(time.time() - t0, 2)
+            cached_data["_tokens"] = 0
+            return cached_data
+        except Exception:
+            pass
 
     # 1. LIVE API Call (Default: cache is OFF unless API fails)
     try:

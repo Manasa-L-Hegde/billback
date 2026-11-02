@@ -12,7 +12,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 load_dotenv()
-client = OpenAI(base_url="https://api.meta.ai/v1", api_key=os.environ.get("MODEL_API_KEY", ""), timeout=60.0, max_retries=2)
+META_KEY = os.environ.get("META_API_KEY") or os.environ.get("MODEL_API_KEY", "")
+client = OpenAI(base_url="https://api.meta.ai/v1", api_key=META_KEY, timeout=60.0, max_retries=2)
 MODEL, MAX_STEPS = "muse-spark-1.3", 10
 MIN_ACCEPT_PERCENT_DEFAULT = float(os.environ.get("MIN_ACCEPT_PERCENT", 80.0))
 rates_file = Path("samples/agreed_rates.json")

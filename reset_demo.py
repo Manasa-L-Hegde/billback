@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+import shutil
 from pathlib import Path
 from drift import init_db, seed_vendor_history, DB_PATH
 
@@ -30,6 +31,13 @@ def reset_demo():
     cur.execute("DELETE FROM sqlite_sequence WHERE name IN ('cases', 'item_history')")
     conn.commit()
     conn.close()
+
+    # Clean uploads directory
+    uploads_dir = Path("uploads")
+    if uploads_dir.exists():
+        shutil.rmtree(uploads_dir, ignore_errors=True)
+    uploads_dir.mkdir(exist_ok=True)
+    print("[*] Uploads directory cleaned and empty.")
 
     # 3. Re-seed 4 older drift invoices with seeded=true flag
     seed_vendor_history()

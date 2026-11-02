@@ -716,4 +716,69 @@ Terminating server...
 Server terminated.
 ```
 
+---
+
+## Task 12: PUBLIC_MODE=1 Verification & Render Deploy Readiness
+
+### Stated Check:
+Run `verify_public_mode.py` locally with `PUBLIC_MODE=1` to prove with raw terminal output:
+(i) A case never calls SMTP (user recipient overridden to `simulated-vendor@example.com`, SMTP_SSL uncalled).
+(ii) The 6th case from one IP in an hour is refused politely (HTTP 429).
+(iii) A `.exe` renamed to `.jpg` is rejected (HTTP 400).
+(iv) A 12 MB file is rejected (HTTP 413).
+(v) Uploads folder is empty after a case run completes (automatic cleanup).
+(vi) `git grep` finds 0 API keys, 0 passwords, and 0 personal emails in the repository.
+
+### Raw Terminal Output:
+```
+================================================================================
+ TASK 5: PUBLIC_MODE=1 VERIFICATION & SECURITY AUDIT 
+================================================================================
+
+[Check 1/6] Proving case / email NEVER calls SMTP in PUBLIC_MODE=1:
+    Recipient passed in : 'hacker@malicious.com'
+    Effective Recipient : 'simulated-vendor@example.com' (forced override)
+    Delivery Status     : 'saved (dry run)'
+    SMTP_SSL Called     : False (0 times)
+    [+] PASS (i): SMTP is never called; user input recipient is strictly ignored.
+
+[Check 2/6] Proving rate limit: 6th case from 1 IP in 1 hr refused politely (HTTP 429):
+    Case #1 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #2 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #3 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #4 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #5 from IP 203.0.113.42 -> HTTP 200 (Allowed)
+    Case #6 from IP 203.0.113.42 -> HTTP 429
+    Detail message: Rate limit reached: Maximum 5 cases per hour per IP. Please try again later or watch the demo video.
+    [+] PASS (ii): 6th case from IP is refused politely with HTTP 429.
+
+[Check 3/6] Proving .exe file renamed to .jpg is rejected by content inspection:
+    Upload response status : HTTP 400
+    Upload response detail : Invalid file type for 'malicious_payload.jpg'. Only JPG, PNG, and WebP images are allowed (verified by file content).
+    [+] PASS (iii): Renamed .exe rejected by magic byte / content verification.
+
+[Check 4/6] Proving 12 MB file is rejected (exceeds 5 MB limit):
+    Upload response status : HTTP 413
+    Upload response detail : File 'oversized_bill.jpg' exceeds maximum allowed size of 5 MB.
+    [+] PASS (iv): 12 MB file rejected with HTTP 413.
+
+[Check 5/6] Proving uploads folder is empty after a case run completes:
+    Created case ID : case_1793591388_1bb90a
+    Files in upload folder during processing: ['test_bill5.jpg']
+    Remaining items in 'uploads/' after run: []
+    [+] PASS (v): Uploads folder is completely empty after run completes.
+
+[Check 6/6] Proving git grep finds no API key, password, or personal email in the repo:
+    git grep -i 'aizasy' matches: 0
+    git grep -E 'sk-...' matches: 0
+    git grep 'GMAIL_APP_PASSWORD=' (non-placeholder) matches: 0
+    git grep email scan: 22 total matches, 0 personal/unwhitelisted matches
+    [+] PASS (vi): 0 API keys, 0 passwords, 0 personal emails found in repository.
+
+================================================================================
+ ALL 6 PUBLIC_MODE SECURITY & RATE-LIMIT CHECKS PASSED (100%) 
+================================================================================
+```
+
+
 

@@ -5,14 +5,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GMAIL_USER = os.environ.get("GMAIL_USER", "")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
-DEMO_VENDOR_EMAIL = os.environ.get("DEMO_VENDOR_EMAIL", "")
-DRY_RUN = os.environ.get("DRY_RUN", "1") == "1"
+PUBLIC_MODE = os.environ.get("PUBLIC_MODE", "0") == "1"
+GMAIL_USER = "" if PUBLIC_MODE else os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = "" if PUBLIC_MODE else os.environ.get("GMAIL_APP_PASSWORD", "")
+DEMO_VENDOR_EMAIL = "simulated-vendor@example.com" if PUBLIC_MODE else os.environ.get("DEMO_VENDOR_EMAIL", "")
+DRY_RUN = True if PUBLIC_MODE else (os.environ.get("DRY_RUN", "1") == "1")
 
 def send_email(to, subject, body):
     """
-    Sends an email via Gmail SMTP (SSL 465) if configured and DRY_RUN=0.
+    Sends an email via Gmail SMTP (SSL 465) if configured, DRY_RUN=0, and PUBLIC_MODE=0.
+    In PUBLIC_MODE=1:
+      - Forced to dry-run (SMTP is strictly skipped).
+      - Recipient is strictly overridden with simulated-vendor@example.com.
+      - Gmail credentials are ignored and must not exist on the server.
     Always records a copy to outbox/ for audit trail.
     """
     outbox_dir = Path("outbox")
@@ -21,13 +26,16 @@ def send_email(to, subject, body):
     timestamp = int(time.time())
     out_file = outbox_dir / f"sent_{timestamp}_{os.getpid()}.txt"
     
-    # Target recipient: prefer DEMO_VENDOR_EMAIL in test environments if available
-    recipient = DEMO_VENDOR_EMAIL if DEMO_VENDOR_EMAIL else to
+    # Target recipient: strictly forced to simulated-vendor in public mode
+    if PUBLIC_MODE:
+        recipient = "simulated-vendor@example.com"
+    else:
+        recipient = DEMO_VENDOR_EMAIL if DEMO_VENDOR_EMAIL else to
 
     email_content = f"To: {recipient}\nSubject: {subject}\nDate: {time.ctime()}\n\n{body}"
     out_file.write_text(email_content, encoding="utf-8")
 
-    if not DRY_RUN and GMAIL_USER and GMAIL_APP_PASSWORD:
+    if not PUBLIC_MODE and not DRY_RUN and GMAIL_USER and GMAIL_APP_PASSWORD:
         try:
             msg = MIMEText(body, "plain", "utf-8")
             msg["Subject"] = subject
