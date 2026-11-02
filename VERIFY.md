@@ -780,5 +780,145 @@ Run `verify_public_mode.py` locally with `PUBLIC_MODE=1` to prove with raw termi
 ================================================================================
 ```
 
+---
+
+## Task 13: Client IP Proxy Quotas & Visitor Isolation Verification
+
+### Stated Check:
+1. **Client IP Rate Limiting**:
+   - Run uvicorn with `--proxy-headers` and `--forwarded-allow-ips="*"`.
+   - Key rate limit on the *first* `X-Forwarded-For` value (Render proxy chain).
+   - Test with two different `X-Forwarded-For` values (`203.0.113.195` and `198.51.100.42`): verify separate quotas.
+   - Demo case limit: 30 cases/hour/IP (30 succeed, 31st returns HTTP 429).
+   - Custom case limit: 5 cases/hour/IP (5 succeed, 6th returns HTTP 429).
+2. **Visitor Isolation & Session Cookie**:
+   - In `PUBLIC_MODE=1`, set an `httpOnly` session cookie (`bb_session`).
+   - `GET /api/cases`, the sidebar, and `/stream` only return cases created by that session.
+   - Cross-session case stream and approval are forbidden (HTTP 403).
+   - Drift alerts stay global (labelled seeded).
+3. **Banner Text**:
+   - Full banner: `"Test data and simulated vendor. Please don't upload personal bills. Images are sent to Meta's model API to be read."`
+
+### Raw Terminal Output:
+```
+================================================================================
+ DEPLOY HARDENING VERIFICATION: CLIENT IP & VISITOR ISOLATION 
+================================================================================
+[*] Starting uvicorn with PUBLIC_MODE=1 on port 8095...
+    Command: .venv\Scripts\uvicorn.exe server:app --host 127.0.0.1 --port 8095 --proxy-headers --forwarded-allow-ips=*
+[+] Uvicorn server is up and listening.
+[+] Health check returned status 200: {"status":"ok","public_mode":true,"cases_today":0,"budget_reached":false,"budget_cap":150}
+
+======================================================================
+ ITEM 1: CLIENT IP RATE LIMITING & SEPARATE QUOTAS
+======================================================================
+[*] Proving Demo Case IP rate limit (30 cases/hour/IP) for IP A (203.0.113.195)...
+    -> Demo cases 1-30 for IP A: ALL succeeded with HTTP 200 OK.
+    -> 31st demo case for IP A status: HTTP 429 (Expected 429)
+    -> Detail: Rate limit reached: Maximum 30 demo cases per hour per IP. Please try again later or watch the demo video.
+
+[*] Proving separate quota for IP B (198.51.100.42)...
+    -> 1st demo case for IP B status: HTTP 200 (Expected 200)
+    [+] PASS: IP A and IP B maintain independent, separated rate limit quotas.
+
+[*] Proving Custom Case rate limit (5 cases/hour/IP) for IP C (192.0.2.77)...
+    -> Custom cases 1-5 for IP C: ALL succeeded with HTTP 200 OK.
+    -> 6th custom case for IP C status: HTTP 429 (Expected 429)
+    -> Detail: Rate limit reached: Maximum 5 cases per hour per IP. Please try again later or watch the demo video.
+    [+] PASS: Custom case quota enforced at 5/hour/IP; demo case quota at 30/hour/IP.
+
+======================================================================
+ ITEM 2: VISITOR ISOLATION & SESSION COOKIES
+======================================================================
+[*] Session A creating a demo case with no initial cookie...
+    -> Case A created: id = demo_case_1793598323_fd560b
+    -> Response Set-Cookie: ['bb_session=sess_923026b02c5e4d4b8b2486bec4025ef2; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax']
+    -> Extracted Session A cookie: sess_923026b02c5e4d4b8b2486bec4025ef2
+    -> Session A cases retrieved: 1 case(s)
+
+[*] Session B accessing case listing with Session B cookie (sess_visitor_b_1793598323)...
+    -> Session B cases retrieved: 0 case(s)
+    [+] CONFIRMED: Session A's case (demo_case_1793598323_fd560b) is completely hidden from Session B.
+
+[*] Session B attempting unauthorized access to stream of Session A's case (demo_case_1793598323_fd560b)...
+    -> Status code: HTTP 403 (Expected 403 Forbidden)
+    -> Detail: Access denied: Case belongs to another session.
+    [+] CONFIRMED: Cross-session stream access strictly blocked with HTTP 403.
+
+[*] Session B attempting unauthorized approve on Session A's case (demo_case_1793598323_fd560b)...
+    -> Status code: HTTP 403 (Expected 403 Forbidden)
+    -> Detail: Access denied: Case belongs to another session.
+    [+] CONFIRMED: Cross-session approval strictly blocked with HTTP 403.
+
+[*] Verifying Price-Drift Alerts stay global across visitor sessions (labelled seeded)...
+    -> Session A drift alerts count: 1
+    -> Session B drift alerts count: 1
+    [+] CONFIRMED: Drift alerts remain global and seeded across all visitor sessions.
+
+================================================================================
+ ALL DEPLOY HARDENING & VISITOR ISOLATION CHECKS PASSED (100%) 
+================================================================================
+[*] Terminating uvicorn background process...
+[*] Uvicorn server stopped.
+```
+
+---
+
+## Task 14: Fresh Python 3.11 Environment & Demo Run Verification
+
+### Stated Check:
+1. Create clean virtual environment with Python 3.11 (`.venv311`).
+2. `pip install -r requirements.txt` pinned packages.
+3. Start uvicorn with `PUBLIC_MODE=1` using `--proxy-headers` and `--forwarded-allow-ips="*"`.
+4. Run full demo case workflow to settlement and verify SSE events and dry-run isolation.
+5. Pinned `PYTHON_VERSION=3.11.9` in `render.yaml` `envVars`. Deleted `runtime.txt`.
+
+### Raw Terminal Output:
+```
+================================================================================
+ PYTHON 3.11 FRESH ENVIRONMENT VERIFICATION (PUBLIC_MODE=1) 
+================================================================================
+Python Executable : C:\Users\manas\OneDrive\Documents\Projects\billback\.venv311\Scripts\python.exe
+Python Version    : 3.11.15 (main, May  8 2026, 18:37:19) [MSC v.1944 64 bit (AMD64)]
+[*] Starting uvicorn with PUBLIC_MODE=1 on port 8096...
+    Command: .venv311\Scripts\uvicorn.exe server:app --host 127.0.0.1 --port 8096 --proxy-headers --forwarded-allow-ips=*
+[+] Uvicorn server started successfully in Python 3.11 virtual environment.
+[+] GET /health -> Status: 200 | Body: {'status': 'ok', 'public_mode': True, 'cases_today': 0, 'budget_reached': False, 'budget_cap': 150}
+[+] POST /api/cases/demo -> Status: 200 | Case ID: demo_case_1793602407_7d7ba9
+    Set-Cookie header received: bb_session=sess_27c2621d81c741b09771909edd37be9f; HttpOnly; Max-Age=2592000; Path=/; SameSite=lax
+
+[*] Connecting to SSE stream for demo_case_1793602407_7d7ba9...
+    -> [SSE Event] tool_start: {'step': 1, 'tool': 'extract_document', 'doc_type': 'invoice', 'path': 'uploads\\demo_case_1793602407_7d7ba9\\test_bill5.jpg'}
+    -> [SSE Event] tool_result: {'step': 1, 'tool': 'extract_document', 'doc_type': 'invoice', 'result': {'vendor': 'CITY WHOLESALE MART', ...}}
+    -> [SSE Event] tool_start: {'step': 2, 'tool': 'extract_document', 'doc_type': 'slip', 'path': 'uploads\\demo_case_1793602407_7d7ba9\\test_slip5.jpg'}
+    -> [SSE Event] tool_result: {'step': 2, 'tool': 'extract_document', 'doc_type': 'slip', 'result': {'vendor': 'CITY WHOLESALE MART', ...}}
+    -> [SSE Event] tool_start: {'step': 3, 'tool': 'read_agreement', 'path': 'uploads\\demo_case_1793602407_7d7ba9\\test_chat3.jpg'}
+    -> [SSE Event] tool_result: {'step': 3, 'tool': 'read_agreement', 'result': {'agreed_rates': {'tomatoes': 35.0, ...}}}
+    -> [SSE Event] tool_start: {'step': 4, 'tool': 'run_audit'}
+    -> [SSE Event] tool_result: {'step': 4, 'tool': 'run_audit', 'result': {'findings': [{'type': 'not_delivered', 'item': 'cooking oil 1l', 'overcharge': 780.0}, {'type': 'tax_on_overcharge', 'overcharge': 39.0}]}}
+    -> [SSE Event] email_draft: {'to': 'simulated-vendor@example.com', 'subject': 'Billing Dispute - Invoice CWM-9021 - Overcharge Rs. 819.0', 'body': 'Dear CITY WHOLESALE MART Accounts Team,\n\nRegarding Invoice CWM-9021 dated 2026-10-25, our automated audit identified the following billing discrepancy:\n\n- cooking oil 1l [not_delivered]: overcharge Rs. 780.0 (billed 12, slip shows 6 delivered)\n- tax on overcharge [tax_on_overcharge]: overcharge Rs. 39.0 (5.0% tax on item overcharge of 780.00)\n\nTotal Overcharge Claimed: Rs. 819.0\n\nPlease issue a corrected invoice or credit note for Rs. 819.0.\n\nRegards,\nBillBack Audit System'}
+    -> [SSE Event] tool_result: {'tool': 'send_dispute_email', 'result': {'status': 'saved (dry run)', 'recipient': 'simulated-vendor@example.com'}}
+    -> [SSE Event] vendor_reply: {'round': 1, 'sender': 'Simulated vendor', 'reply': 'Dear Customer,\n\nWe reviewed your dispute. We can offer a partial 50% credit of Rs. 409.5 to resolve this quickly.\n\nRegards,\nSimulated Vendor Accounts Team', 'offer': 409.5, 'source': 'cache', 'latency': 0.0, 'tokens': 0}
+    -> [SSE Event] agent_reply: {'round': 1, 'sender': 'BillBack Agent', 'action': 'COUNTER', 'counter_offer': 819.0, 'message': 'Dear CITY WHOLESALE MART,\n\nWe cannot accept Rs. 409.5. As documented in our arithmetic and goods receipt audit, the exact overcharge is Rs. 819.0. Please approve credit note of Rs. 819.0 to resolve this dispute.\n\nRegards,\nBillBack Audit', 'source': 'deterministic_policy'}
+    -> [SSE Event] vendor_reply: {'round': 2, 'sender': 'Simulated vendor', 'reply': 'Dear Customer,\n\nHaving verified your signed delivery challan and agreement, we concede the billing discrepancy and grant full credit of Rs. 819.0.\n\nRegards,\nSimulated Vendor Accounts Team', 'offer': 819.0, 'source': 'cache', 'latency': 0.0, 'tokens': 0}
+    -> [SSE Event] agent_reply: {'round': 2, 'sender': 'BillBack Agent', 'action': 'ACCEPT', 'message': 'Settlement accepted: Rs. 819.0 meets recovery floor (Rs. 655.2). Case closed.', 'source': 'deterministic_policy'}
+    -> [SSE Event] outcome: {'claimed': 819.0, 'recovered': 819.0, 'vendor_offer': 819.0, 'floor': 655.2, 'rounds': 2, 'status': 'Settled in round 2: Vendor granted Rs. 819.0 (>= 80.0% floor)', 'escalated': False, ...}
+
+================================================================================
+ DEMO CASE EXECUTION SUMMARY (PYTHON 3.11 + PUBLIC_MODE=1) 
+================================================================================
+Outcome Status   : Settled in round 2: Vendor granted Rs. 819.0 (>= 80.0% floor)
+Claimed Overcharge: Rs. 819.00
+Recovered Amount  : Rs. 819.00
+Negotiation Rounds: 2
+Source Tag        : cached replay
+Total SSE Events  : 15
+RESULT            : ALL PYTHON 3.11 DEPLOYMENT TESTS PASSED PERFECTLY
+================================================================================
+[*] Terminating uvicorn background process...
+[*] Uvicorn server stopped.
+```
+
+
 
 

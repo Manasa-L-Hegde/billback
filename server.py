@@ -32,8 +32,10 @@ def on_startup():
     """Ensure clean seeded state on server startup (especially Render ephemeral disks)."""
     reset_demo()
 
-# Rate limiting and global caps (Task 1c)
-IP_CASE_TIMESTAMPS = defaultdict(list)
+# Rate limiting and global caps (Requirement 1)
+IP_DEMO_CASE_TIMESTAMPS = defaultdict(list)
+IP_CUSTOM_CASE_TIMESTAMPS = defaultdict(list)
+IP_CASE_TIMESTAMPS = IP_CUSTOM_CASE_TIMESTAMPS  # backward-compatible alias
 GLOBAL_CASE_TIMESTAMPS = []
 
 def clean_timestamps():
@@ -41,14 +43,19 @@ def clean_timestamps():
     one_hour_ago = now - 3600
     one_day_ago = now - 86400
     GLOBAL_CASE_TIMESTAMPS[:] = [t for t in GLOBAL_CASE_TIMESTAMPS if t > one_day_ago]
-    for ip in list(IP_CASE_TIMESTAMPS.keys()):
-        IP_CASE_TIMESTAMPS[ip] = [t for t in IP_CASE_TIMESTAMPS[ip] if t > one_hour_ago]
-        if not IP_CASE_TIMESTAMPS[ip]:
-            del IP_CASE_TIMESTAMPS[ip]
+    for ip in list(IP_DEMO_CASE_TIMESTAMPS.keys()):
+        IP_DEMO_CASE_TIMESTAMPS[ip] = [t for t in IP_DEMO_CASE_TIMESTAMPS[ip] if t > one_hour_ago]
+        if not IP_DEMO_CASE_TIMESTAMPS[ip]:
+            del IP_DEMO_CASE_TIMESTAMPS[ip]
+    for ip in list(IP_CUSTOM_CASE_TIMESTAMPS.keys()):
+        IP_CUSTOM_CASE_TIMESTAMPS[ip] = [t for t in IP_CUSTOM_CASE_TIMESTAMPS[ip] if t > one_hour_ago]
+        if not IP_CUSTOM_CASE_TIMESTAMPS[ip]:
+            del IP_CUSTOM_CASE_TIMESTAMPS[ip]
 
 def get_client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
+        # Key the rate limit on the FIRST X-Forwarded-For value (Render/Nginx proxy)
         return forwarded.split(",")[0].strip()
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
@@ -69,17 +76,27 @@ def check_rate_limits(request_ip: str, is_demo: bool = False):
             detail="Live demo budget reached. Watch the video or use Try demo case (cached replay, labelled)."
         )
     
-    # 2. IP limit (5 cases per IP per hour)
-    if len(IP_CASE_TIMESTAMPS[request_ip]) >= 5:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit reached: Maximum 5 cases per hour per IP. Please try again later or watch the demo video."
-        )
+    # 2. IP limit: 30 demo cases / hour vs 5 custom cases / hour
+    if is_demo:
+        if len(IP_DEMO_CASE_TIMESTAMPS[request_ip]) >= 30:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit reached: Maximum 30 demo cases per hour per IP. Please try again later or watch the demo video."
+            )
+    else:
+        if len(IP_CUSTOM_CASE_TIMESTAMPS[request_ip]) >= 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit reached: Maximum 5 cases per hour per IP. Please try again later or watch the demo video."
+            )
     return "ok"
 
-def record_case_created(request_ip: str):
+def record_case_created(request_ip: str, is_demo: bool = False):
     now = time.time()
-    IP_CASE_TIMESTAMPS[request_ip].append(now)
+    if is_demo:
+        IP_DEMO_CASE_TIMESTAMPS[request_ip].append(now)
+    else:
+        IP_CUSTOM_CASE_TIMESTAMPS[request_ip].append(now)
     GLOBAL_CASE_TIMESTAMPS.append(now)
 
 # Upload validation (Task 1d)
@@ -118,6 +135,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Visitor Isolation Session Cookie Middleware (Requirement 2)
+@app.middleware("http")
+async def session_cookie_middleware(request: Request, call_next):
+    session_id = request.cookies.get("bb_session")
+    is_new = False
+    if not session_id:
+        session_id = f"sess_{uuid.uuid4().hex}"
+        is_new = True
+    request.state.session_id = session_id
+
+    response = await call_next(request)
+
+    if is_new or not request.cookies.get("bb_session"):
+        response.set_cookie(
+            key="bb_session",
+            value=session_id,
+            httponly=True,
+            samesite="lax",
+            max_age=30 * 24 * 3600,
+            path="/"
+        )
+    return response
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -168,7 +208,7 @@ def health_check():
 def create_demo_case(request: Request, payload: DemoCasePayload):
     client_ip = get_client_ip(request)
     limit_status = check_rate_limits(client_ip, is_demo=True)
-    record_case_created(client_ip)
+    record_case_created(client_ip, is_demo=True)
 
     case_id = f"demo_case_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     case_dir = UPLOAD_DIR / case_id
@@ -190,14 +230,15 @@ def create_demo_case(request: Request, payload: DemoCasePayload):
     # In public mode, never use client vendor email
     v_email = "simulated-vendor@example.com" if PUBLIC_MODE else "vendor@example.com"
     force_cache_flag = 1 if (limit_status == "cached_replay" or payload.vendor_mode == "cached") else 0
+    session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or "default_session"
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("""
     INSERT INTO cases (
         id, invoice_file, slip_file, agreement_file, vendor_email, 
-        vendor_mode, min_accept_percent, autonomous, demo_pacing, status, force_cache
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        vendor_mode, min_accept_percent, autonomous, demo_pacing, status, force_cache, session_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         case_id, str(inv_dst), str(slip_dst), 
         str(chat_dst), v_email,
@@ -206,7 +247,8 @@ def create_demo_case(request: Request, payload: DemoCasePayload):
         1 if payload.autonomous else 0,
         1 if (payload.demo_pacing is not False) else 0,
         "created",
-        force_cache_flag
+        force_cache_flag,
+        session_id
     ))
     conn.commit()
     conn.close()
@@ -214,11 +256,15 @@ def create_demo_case(request: Request, payload: DemoCasePayload):
     return {"case_id": case_id, "status": "created", "force_cache": bool(force_cache_flag)}
 
 @app.get("/api/cases")
-def list_cases():
+def list_cases(request: Request):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    cur.execute("SELECT * FROM cases ORDER BY created_at DESC")
+    if PUBLIC_MODE:
+        session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or ""
+        cur.execute("SELECT * FROM cases WHERE session_id = ? ORDER BY created_at DESC", (session_id,))
+    else:
+        cur.execute("SELECT * FROM cases ORDER BY created_at DESC")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
@@ -296,6 +342,7 @@ async def create_case(
 
     # In public mode, never use user-submitted vendor email
     v_email = "simulated-vendor@example.com" if PUBLIC_MODE else (vendor_email or "vendor@example.com")
+    session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or "default_session"
 
     # Insert case in SQLite
     conn = sqlite3.connect(DB_PATH)
@@ -303,12 +350,12 @@ async def create_case(
     cur.execute("""
     INSERT INTO cases (
         id, invoice_file, slip_file, agreement_file, vendor_email, 
-        vendor_mode, min_accept_percent, autonomous, demo_pacing, status, force_cache
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        vendor_mode, min_accept_percent, autonomous, demo_pacing, status, force_cache, session_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         case_id, str(inv_path), str(slip_path) if slip_path else None, 
         str(agreed_path) if agreed_path else None, v_email,
-        vendor_mode, min_accept_percent, 1 if autonomous else 0, 1 if demo_pacing else 0, "created", 0
+        vendor_mode, min_accept_percent, 1 if autonomous else 0, 1 if demo_pacing else 0, "created", 0, session_id
     ))
     conn.commit()
     conn.close()
@@ -635,7 +682,17 @@ def _update_db_case(case_id, vendor, inv_no, status, claimed, recovered, audit_r
     conn.close()
 
 @app.get("/api/cases/{case_id}/stream")
-async def stream_case(case_id: str):
+async def stream_case(case_id: str, request: Request):
+    if PUBLIC_MODE:
+        session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or ""
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT session_id FROM cases WHERE id = ?", (case_id,))
+        row = cur.fetchone()
+        conn.close()
+        if not row or (row[0] and row[0] != session_id):
+            raise HTTPException(status_code=403, detail="Access denied: Case belongs to another session.")
+
     if case_id not in CASE_RUNNING_TASKS:
         CASE_RUNNING_TASKS[case_id] = asyncio.create_task(execute_case_workflow(case_id))
 
@@ -682,7 +739,17 @@ async def stream_case(case_id: str):
     )
 
 @app.post("/api/cases/{case_id}/approve")
-async def approve_case(case_id: str, payload: Optional[ApprovalPayload] = None):
+async def approve_case(case_id: str, request: Request, payload: Optional[ApprovalPayload] = None):
+    if PUBLIC_MODE:
+        session_id = getattr(request.state, "session_id", None) or request.cookies.get("bb_session") or ""
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT session_id FROM cases WHERE id = ?", (case_id,))
+        row = cur.fetchone()
+        conn.close()
+        if not row or (row[0] and row[0] != session_id):
+            raise HTTPException(status_code=403, detail="Access denied: Case belongs to another session.")
+
     if payload:
         CASE_EDITED_EMAILS[case_id] = payload
     CASE_APPROVED_SET.add(case_id)

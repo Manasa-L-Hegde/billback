@@ -46,13 +46,16 @@ def init_db():
         findings_json TEXT,
         transcript_json TEXT,
         email_draft TEXT,
-        force_cache INTEGER DEFAULT 0
+        force_cache INTEGER DEFAULT 0,
+        session_id TEXT
     )
     """)
     cur.execute("PRAGMA table_info(cases)")
     c_cols = [col[1] for col in cur.fetchall()]
     if "force_cache" not in c_cols:
         cur.execute("ALTER TABLE cases ADD COLUMN force_cache INTEGER DEFAULT 0")
+    if "session_id" not in c_cols:
+        cur.execute("ALTER TABLE cases ADD COLUMN session_id TEXT")
     cur.execute("PRAGMA table_info(cases)")
     case_cols = [col[1] for col in cur.fetchall()]
     if "demo_pacing" not in case_cols:
