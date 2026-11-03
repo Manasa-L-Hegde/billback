@@ -1,5 +1,21 @@
 # BillBack
 
+
+
+[![Live Demo on Render](https://img.shields.io/badge/Render-Live%20Demo-brightgreen?style=for-the-badge&logo=render)](https://billback-6ktl.onrender.com)
+
+[![Meta Hackathon](https://img.shields.io/badge/Meta%20Hackathon-Submission%20Ready-blue?style=for-the-badge&logo=meta)](https://billback-6ktl.onrender.com)
+
+
+
+**Live Deployed Application:** [https://billback-6ktl.onrender.com](https://billback-6ktl.onrender.com)
+
+
+
+![BillBack Live Interface Snapshot](snapshot_live.png)
+
+
+
 > Small shops and families pay bills where the real agreement lives in a voice note or chat, the proof of delivery is a paper slip, and the bill is a photo. There is no ERP and no contract management system. Overcharges slip through—arithmetic mistakes, surprise charges nobody agreed to, items billed twice or never delivered—because auditing requires cross-referencing three messy, fragmented sources by hand, and disputing requires drafting, calculating, and chasing emails. BillBack is an autonomous agent that reads all three sources, mathematically proves each overcharge, drafts an evidence-backed dispute, and carries multi-round negotiation through to recovery.
 
 ---
@@ -61,7 +77,7 @@ flowchart TD
 
 ## Live Demo (Public Deployment)
 
-- **Live URL**: `https://billback.onrender.com` *(Placeholder for Render public deployment)*
+- **Live URL**: `https://billback-6ktl.onrender.com` *(Placeholder for Render public deployment)*
 - **Public Mode Safety (`PUBLIC_MODE=1`)**:
   - **Zero SMTP / Email Dry-Run**: Outbound emails are strictly forced to dry-run logging. The recipient address is never taken from user input and is overridden to `simulated-vendor@example.com`. Gmail SMTP credentials are never stored or accessed on the public server.
   - **Disabled Destructive Endpoints**: Administrative and reset endpoints (`/api/dev/reset`, `?dev=1`) are disabled and return HTTP 403 Forbidden.
